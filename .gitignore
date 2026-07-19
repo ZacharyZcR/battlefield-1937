@@ -1,0 +1,26 @@
+# Dependencies and generated web output
+**/node_modules/
+**/dist/
+**/dist-ssr/
+
+# Godot generated state
+**/.godot/
+
+# Locally downloaded engines and archives
+tools/godot/
+
+# Logs and local configuration
+*.log
+*.local
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
