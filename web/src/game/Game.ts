@@ -2,6 +2,9 @@ import * as THREE from 'three'
 import { loadouts, loadoutsForCampaign, sidearm, type Loadout } from './loadouts'
 import { BattlefieldAudio } from './Audio'
 import type { Campaign } from './campaigns'
+import { boundsForCampaign, DEFAULT_MAP_BOUNDS, type MapBounds } from './mapBounds'
+import { SpatialHash } from './SpatialHash'
+import { Pathfinder } from './Pathfinder'
 
 type Team = 'ally' | 'enemy'
 type TankCrewRole = 'driver' | 'gunner' | 'commander' | 'loader'
@@ -49,6 +52,24 @@ export class Game {
   private audio = new BattlefieldAudio()
   private scene = new THREE.Scene()
   private textureCache = new Map<number, THREE.CanvasTexture>()
+  private materialCache = new Map<string, THREE.MeshStandardMaterial>()
+  private mapBounds: MapBounds = { ...DEFAULT_MAP_BOUNDS }
+  private colliderHash = new SpatialHash(4)
+  private vehicleHash = new SpatialHash(6)
+  private pathfinder = new Pathfinder()
+  private collidersDirty = true
+  private lastColliderCount = -1
+  private lastVehicleColliderCount = -1
+  private combatLogBuffer: unknown[] = []
+  private combatLogFlushAt = 0
+  private scoreboardAt = 0
+  private readonly tmpV2A = new THREE.Vector2()
+  private readonly tmpV2B = new THREE.Vector2()
+  private readonly tmpV3A = new THREE.Vector3()
+  private readonly tmpV3B = new THREE.Vector3()
+  private readonly tmpV3C = new THREE.Vector3()
+  private readonly aliveEnemies: Bot[] = []
+  private readonly aliveAllies: Bot[] = []
   private camera = new THREE.PerspectiveCamera(72, 1, .06, 420)
   private clock = new THREE.Clock()
   private ray = new THREE.Raycaster()
@@ -215,12 +236,43 @@ export class Game {
   private events: Events
   private campaign: Campaign
   private activeLoadout() { return this.weaponSlot === 'primary' ? this.selectedLoadout : sidearm }
-  private logCombat(type: string, details: Record<string, unknown>) { try { const key = 'battlefield1937_combat_log', entries = JSON.parse(localStorage.getItem(key) ?? '[]') as unknown[]; const entry = { at: new Date().toISOString(), battleTime: Math.round(performance.now()), campaign: this.campaign.id, type, playerPosition: [Number(this.camera.position.x.toFixed(2)), Number(this.camera.position.y.toFixed(2)), Number(this.camera.position.z.toFixed(2))], ...details }; entries.push(entry); localStorage.setItem(key, JSON.stringify(entries.slice(-400), null, 2)); console.info('[战地1937]', entry) } catch (error) { console.warn('[战地1937] 战斗日志写入失败', error) } }
+  private logCombat(type: string, details: Record<string, unknown>) {
+    const entry = { at: new Date().toISOString(), battleTime: Math.round(performance.now()), campaign: this.campaign.id, type, playerPosition: [Number(this.camera.position.x.toFixed(2)), Number(this.camera.position.y.toFixed(2)), Number(this.camera.position.z.toFixed(2))], ...details }
+    this.combatLogBuffer.push(entry)
+    if (this.combatLogBuffer.length > 80) this.flushCombatLog(false)
+    else if (performance.now() >= this.combatLogFlushAt) this.flushCombatLog(false)
+  }
+  private flushCombatLog(force: boolean) {
+    if (!this.combatLogBuffer.length && !force) return
+    this.combatLogFlushAt = performance.now() + 2000
+    if (!this.combatLogBuffer.length) return
+    try {
+      const key = 'battlefield1937_combat_log'
+      const stored = JSON.parse(localStorage.getItem(key) ?? '[]') as unknown[]
+      stored.push(...this.combatLogBuffer)
+      localStorage.setItem(key, JSON.stringify(stored.slice(-400)))
+      this.combatLogBuffer.length = 0
+    } catch (error) { console.warn('[战地1937] 战斗日志写入失败', error); this.combatLogBuffer.length = 0 }
+  }
+  private rebuildSpatialIndexes() {
+    this.colliderHash.rebuild(this.colliders)
+    this.vehicleHash.rebuild(this.vehicleColliders)
+    this.pathfinder.rebuild(this.colliderHash, this.mapBounds)
+    this.collidersDirty = false
+    this.lastColliderCount = this.colliders.length
+    this.lastVehicleColliderCount = this.vehicleColliders.length
+  }
+  private syncColliders() {
+    if (!this.collidersDirty && this.colliders.length === this.lastColliderCount && this.vehicleColliders.length === this.lastVehicleColliderCount) return
+    this.rebuildSpatialIndexes()
+  }
+  private markCollidersDirty() { this.collidersDirty = true }
 
   constructor(canvas: HTMLCanvasElement, events: Events, campaign: Campaign) {
     this.canvas = canvas
     this.events = events
     this.campaign = campaign
+    this.mapBounds = boundsForCampaign(campaign)
     this.battleLoadouts = loadoutsForCampaign(campaign.id)
     this.selectedLoadout = this.battleLoadouts[0]
     this.tickets = [campaign.tickets, campaign.tickets]
@@ -232,12 +284,13 @@ export class Game {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.toneMappingExposure = .95
-    ;(window as unknown as { exportBattlefield1937Log: () => void }).exportBattlefield1937Log = () => { const data = localStorage.getItem('battlefield1937_combat_log') ?? '[]', link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([data], { type: 'application/json' })); link.download = `战地1937-战斗日志-${new Date().toISOString().replace(/[:.]/g, '-')}.json`; link.click(); URL.revokeObjectURL(link.href) }
+    ;(window as unknown as { exportBattlefield1937Log: () => void }).exportBattlefield1937Log = () => { this.flushCombatLog(true); const data = localStorage.getItem('battlefield1937_combat_log') ?? '[]', link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([data], { type: 'application/json' })); link.download = `战地1937-战斗日志-${new Date().toISOString().replace(/[:.]/g, '-')}.json`; link.click(); URL.revokeObjectURL(link.href) }
     const atmosphere = { delta: [0x737c79, 0x858d89], ruin: [0x77756e, 0x85837b], canal: [0x8b8a7e, 0x99988b], green: [0x778477, 0x899489], loess: [0x9a8769, 0xa49172], jungle: [0x536b5b, 0x647766], alpine: [0x7c8987, 0x929c99] }[campaign.theme]; this.scene.background = new THREE.Color(atmosphere[0]); this.scene.fog = new THREE.FogExp2(atmosphere[1], campaign.theme === 'jungle' ? .018 : .012)
-    this.camera.position.set(0, 1.72, 47)
-    this.lights(); this.map(); this.initWeather(); for (const flag of campaign.flags) this.objective(flag.id, flag.x, flag.z, flag.radius); if (campaign.rule === 'demolition') for (const flag of campaign.flags) this.depot(flag.id, flag.x, flag.z); this.resetModeState(); this.fixedMachineGuns(); this.supply(4, 45); this.squadMarker.visible = false; this.squadMarker.renderOrder = 5; this.scene.add(this.squadMarker); this.mortarMarker.rotation.x = -Math.PI / 2; this.mortarMarker.visible = false; this.mortarMarker.renderOrder = 6; this.scene.add(this.mortarMarker); this.gun(); this.forces(); this.tank('ally'); this.tank('enemy'); this.transport('ally'); this.transport('enemy'); this.emplacement('ally', 'at', -5.5, 27); this.emplacement('enemy', 'at', 5.5, -27); this.emplacement('ally', 'aa', 6, 43); this.emplacement('enemy', 'aa', -6, -43); this.plane('ally'); this.plane('enemy'); this.input(); this.resize(); this.loop()
+    this.camera.position.set(0, 1.72, Math.min(47, this.mapBounds.halfDepth - 11))
+    this.lights(); this.map(); this.initWeather(); for (const flag of campaign.flags) this.objective(flag.id, flag.x, flag.z, flag.radius); if (campaign.rule === 'demolition') for (const flag of campaign.flags) this.depot(flag.id, flag.x, flag.z); this.resetModeState(); this.fixedMachineGuns(); this.supply(4, 45); this.squadMarker.visible = false; this.squadMarker.renderOrder = 5; this.scene.add(this.squadMarker); this.mortarMarker.rotation.x = -Math.PI / 2; this.mortarMarker.visible = false; this.mortarMarker.renderOrder = 6; this.scene.add(this.mortarMarker); this.gun(); this.forces(); this.tank('ally'); this.tank('enemy'); this.transport('ally'); this.transport('enemy'); this.emplacement('ally', 'at', -5.5, 27); this.emplacement('enemy', 'at', 5.5, -27); this.emplacement('ally', 'aa', 6, 43); this.emplacement('enemy', 'aa', -6, -43); this.plane('ally'); this.plane('enemy'); this.input(); this.resize(); this.rebuildSpatialIndexes(); this.loop()
     this.expandVehicleForces()
     addEventListener('resize', () => this.resize())
+    addEventListener('beforeunload', () => this.flushCombatLog(true))
   }
 
   private expandVehicleForces() {
@@ -262,7 +315,17 @@ export class Game {
     ;[this.enemyAccuracy, this.enemyFireRate, this.enemyDamage] = difficulty
   }
   setPaused(value: boolean) { if (!this.active || this.matchOver) return; if (value) { this.releaseGrenadeCook(); this.interruptBandage(); this.clearSupplyAction(); this.clearBuildAction('建造已取消') } this.paused = value; this.firing = false; this.aiming = false; this.events.aim(false); if (!value) this.clock.getDelta() }
-  configure(settings: GameSettings) { this.sensitivity = THREE.MathUtils.clamp(settings.sensitivity, .0007, .005); this.audio.setVolume(settings.volume); const ratio = settings.quality === 'low' ? 1 : settings.quality === 'medium' ? Math.min(devicePixelRatio, 1.5) : Math.min(devicePixelRatio, 2); this.renderer.setPixelRatio(ratio); this.renderer.shadowMap.enabled = settings.quality !== 'low'; this.renderer.toneMappingExposure = settings.quality === 'low' ? 1 : .95; this.resize() }
+  configure(settings: GameSettings) {
+    this.sensitivity = THREE.MathUtils.clamp(settings.sensitivity, .0007, .005)
+    this.audio.setVolume(settings.volume)
+    const ratio = settings.quality === 'low' ? 1 : settings.quality === 'medium' ? Math.min(devicePixelRatio, 1.5) : Math.min(devicePixelRatio, 2)
+    this.renderer.setPixelRatio(ratio)
+    this.renderer.shadowMap.enabled = settings.quality !== 'low'
+    this.renderer.shadowMap.type = settings.quality === 'high' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap
+    this.sun.shadow.mapSize.setScalar(settings.quality === 'high' ? 2048 : settings.quality === 'medium' ? 1024 : 512)
+    this.renderer.toneMappingExposure = settings.quality === 'low' ? 1 : .95
+    this.resize()
+  }
   unlockAudio() { this.audio.unlock({ rain: this.campaign.weather.includes('雨'), birds: !['ruin', 'alpine'].includes(this.campaign.theme) }) }
   respawn(loadoutIndex = 0, spawnId = 'base') {
     if (this.matchOver || !this.dead || this.tickets[0] <= 0) return
@@ -290,7 +353,7 @@ export class Game {
     for (const shell of this.artilleryShells) { this.scene.remove(shell.marker); shell.marker.geometry.dispose(); (shell.marker.material as THREE.Material).dispose() } this.artilleryShells.length = 0; this.nextArtilleryAt = performance.now() / 1000 + 12
     for (const crater of this.craters) { this.scene.remove(crater); crater.geometry.dispose(); (crater.material as THREE.Material).dispose() } this.craters.length = 0
     for (const casing of this.casings) { this.scene.remove(casing.mesh); casing.mesh.geometry.dispose(); (casing.mesh.material as THREE.Material).dispose() } this.casings.length = 0
-    for (const medkit of this.medkits) { this.scene.remove(medkit.root); medkit.root.traverse(child => { if (!(child instanceof THREE.Mesh)) return; child.geometry.dispose(); const materials = Array.isArray(child.material) ? child.material : [child.material]; materials.forEach(material => material.dispose()) }) } this.medkits.length = 0
+    for (const medkit of this.medkits) { this.scene.remove(medkit.root); medkit.root.traverse(child => { if (!(child instanceof THREE.Mesh)) return; child.geometry.dispose(); const materials = Array.isArray(child.material) ? child.material : [child.material]; materials.forEach(material => this.disposeMaterial(material)) }) } this.medkits.length = 0
     for (const shell of this.cannonShells) { this.scene.remove(shell.mesh); shell.mesh.geometry.dispose(); (shell.mesh.material as THREE.Material).dispose() } this.cannonShells.length = 0
     for (const wreck of this.planeWrecks) { this.disposeWreck(wreck); if (wreck.collider) { const colliderIndex = this.vehicleColliders.indexOf(wreck.collider); if (colliderIndex >= 0) this.vehicleColliders.splice(colliderIndex, 1) } } this.planeWrecks.length = 0
     for (const pilot of this.bailedPilots) { if (pilot.bot) { pilot.chute.removeFromParent(); this.disposeGroup(pilot.chute); pilot.bot.chuting = false } else this.disposeGroup(pilot.root) } this.bailedPilots.length = 0
@@ -298,12 +361,14 @@ export class Game {
     for (const building of this.urbanBuildings) { this.clearRubble(building.rubble); building.damageStage = 0 }
     for (const structure of this.fieldStructures) { structure.hp = 360; structure.destroyed = false; structure.body.position.set(0, 1.3, 0); structure.body.scale.set(1, 1, 1); structure.roof.position.set(0, 3.25, 0); structure.roof.rotation.set(0, Math.PI / 4, 0); structure.roof.scale.set(1, 1, 1.15); structure.root.children.forEach(child => child.visible = true); if (!this.colliders.includes(structure.collider)) this.colliders.push(structure.collider); if (!this.vehicleColliders.includes(structure.collider)) this.vehicleColliders.push(structure.collider); if (!this.coverMeshes.includes(structure.body)) this.coverMeshes.push(structure.body); if (!this.coverMeshes.includes(structure.roof)) this.coverMeshes.push(structure.roof) }
     for (const building of this.urbanBuildings) { building.hp = 900; building.destroyed = false; building.body.position.y = 3.2 + (building.height - 3.2) / 2; building.body.scale.set(1, 1, 1); building.body.rotation.set(0, 0, 0); building.details.forEach(detail => { detail.visible = true; if (detail instanceof THREE.Mesh && !this.coverMeshes.includes(detail)) this.coverMeshes.push(detail) }); if (!this.coverMeshes.includes(building.body)) this.coverMeshes.push(building.body); for (const collider of building.colliders) { if (!this.colliders.includes(collider)) this.colliders.push(collider); if (!this.vehicleColliders.includes(collider)) this.vehicleColliders.push(collider) } if (building.ladder && !this.ladders.includes(building.ladder)) this.ladders.push(building.ladder); if (building.platform && !this.platforms.includes(building.platform)) this.platforms.push(building.platform) }
-    this.constructionRisers.length = 0; for (const fortification of this.fortifications) { for (const mesh of fortification.meshes) { this.scene.remove(mesh); mesh.geometry.dispose(); const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]; materials.forEach(material => material.dispose()); const index = this.coverMeshes.indexOf(mesh); if (index >= 0) this.coverMeshes.splice(index, 1) } for (const collider of fortification.colliders) { const index = this.colliders.indexOf(collider); if (index >= 0) this.colliders.splice(index, 1) } } this.fortifications.length = 0
+    this.constructionRisers.length = 0; for (const fortification of this.fortifications) { for (const mesh of fortification.meshes) { this.scene.remove(mesh); mesh.geometry.dispose(); const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]; materials.forEach(material => this.disposeMaterial(material)); const index = this.coverMeshes.indexOf(mesh); if (index >= 0) this.coverMeshes.splice(index, 1) } for (const collider of fortification.colliders) { const index = this.colliders.indexOf(collider); if (index >= 0) this.colliders.splice(index, 1) } } this.fortifications.length = 0
     if (this.mortar) { this.disposeGroup(this.mortar.root); this.mortar = undefined; this.playerMortar = undefined; this.mortarMarker.visible = false }
     for (let index = this.machineGuns.length - 1; index >= 0; index--) { const machineGun = this.machineGuns[index]; if (machineGun.deployable) { this.disposeGroup(machineGun.root); this.machineGuns.splice(index, 1) } else { if (machineGun.operator) machineGun.operator.machineGun = undefined; machineGun.operator = undefined; machineGun.operatorUntil = 0; machineGun.occupied = false; machineGun.ammo = 250; machineGun.heat = 0; machineGun.nextShot = 0 } } this.playerMG = undefined
     this.resetModeState()
     const time = performance.now() / 1000; this.reinforcementWaveAt = { ally: time + 8, enemy: time + 8 }; for (const bot of this.bots) { bot.kills = 0; bot.deaths = 0; bot.objectiveScore = 0; this.reinforce(bot, time) } for (const tank of this.tanks) this.reinforceTank(tank, time); for (const transport of this.transports) this.reinforceTransport(transport, time); for (const plane of this.planes) this.reinforcePlane(plane, time); for (const gun of this.emplacements) { gun.alive = true; gun.occupied = false; gun.hp = gun.kind === 'aa' ? 180 : 240; gun.root.rotation.z = 0; gun.nextShot = time + 2 }
     this.playerEmplacement = undefined
+    this.markCollidersDirty()
+    this.rebuildSpatialIndexes()
     this.active = true
   }
   private surfaceTexture(color: number) {
@@ -314,20 +379,49 @@ export class Game {
     context.globalAlpha = .09; context.strokeStyle = `#${dark.getHexString()}`; context.lineWidth = .45; for (let line = 0; line < 7; line++) { const y = random() * 64; context.beginPath(); context.moveTo(0, y); context.bezierCurveTo(18, y + (random() - .5) * 4, 44, y + (random() - .5) * 4, 64, y + (random() - .5) * 3); context.stroke() }
     context.globalAlpha = 1; const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; texture.wrapS = texture.wrapT = THREE.RepeatWrapping; texture.repeat.set(2, 2); texture.anisotropy = Math.min(4, this.renderer?.capabilities.getMaxAnisotropy?.() ?? 1); this.textureCache.set(color, texture); return texture
   }
-  private mat(c: number, r = .88) { return r >= .62 ? new THREE.MeshStandardMaterial({ color: 0xffffff, map: this.surfaceTexture(c), roughness: r }) : new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: r < .4 ? .18 : 0 }) }
+  private mat(c: number, r = .88) {
+    const key = `${c}|${r.toFixed(2)}`
+    const cached = this.materialCache.get(key)
+    if (cached) return cached
+    const material = r >= .62
+      ? new THREE.MeshStandardMaterial({ color: 0xffffff, map: this.surfaceTexture(c), roughness: r })
+      : new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: r < .4 ? .18 : 0 })
+    material.userData.shared = true
+    this.materialCache.set(key, material)
+    return material
+  }
+  private disposeMaterial(material: THREE.Material) { if (material.userData?.shared) return; material.dispose() }
   private box(s: [number, number, number], p: [number, number, number], c: number, parent: THREE.Object3D = this.scene) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(...s), this.mat(c)); m.position.set(...p); m.castShadow = m.receiveShadow = true; parent.add(m); return m
   }
-  private disposeGroup(root: THREE.Group) { this.scene.remove(root); root.traverse(child => { if (!(child instanceof THREE.Mesh)) return; child.geometry.dispose(); const materials = Array.isArray(child.material) ? child.material : [child.material]; materials.forEach(material => material.dispose()) }) }
-  private clearRubble(rubble: THREE.Mesh[]) { for (const mesh of rubble) { const coverIndex = this.coverMeshes.indexOf(mesh); if (coverIndex >= 0) this.coverMeshes.splice(coverIndex, 1); mesh.removeFromParent(); mesh.geometry.dispose(); const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]; materials.forEach(material => material.dispose()) } rubble.length = 0 }
+  private disposeGroup(root: THREE.Group) { this.scene.remove(root); root.traverse(child => { if (!(child instanceof THREE.Mesh)) return; child.geometry.dispose(); const materials = Array.isArray(child.material) ? child.material : [child.material]; materials.forEach(material => this.disposeMaterial(material)) }) }
+  private clearRubble(rubble: THREE.Mesh[]) { for (const mesh of rubble) { const coverIndex = this.coverMeshes.indexOf(mesh); if (coverIndex >= 0) this.coverMeshes.splice(coverIndex, 1); mesh.removeFromParent(); mesh.geometry.dispose(); const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]; materials.forEach(material => this.disposeMaterial(material)) } rubble.length = 0 }
   private cover(s: [number, number, number], p: [number, number, number], c: number) {
-    const mesh = this.box(s, p, c); this.colliders.push({ minX: p[0] - s[0] / 2, maxX: p[0] + s[0] / 2, minZ: p[2] - s[2] / 2, maxZ: p[2] + s[2] / 2 }); this.coverMeshes.push(mesh); return mesh
+    const mesh = this.box(s, p, c); this.colliders.push({ minX: p[0] - s[0] / 2, maxX: p[0] + s[0] / 2, minZ: p[2] - s[2] / 2, maxZ: p[2] + s[2] / 2 }); this.coverMeshes.push(mesh); this.markCollidersDirty(); return mesh
   }
-  private battlefieldHalfWidth() { return 28 }
-  private openPlacement(x: number, z: number, radius: number) { for (let ring = 0; ring <= 10; ring++) { const distance = ring * .85, count = Math.max(1, ring * 8); for (let index = 0; index < count; index++) { const angle = index / count * Math.PI * 2, px = x + Math.cos(angle) * distance, pz = z + Math.sin(angle) * distance, occupied = this.machineGuns.some(item => item.root.position.distanceToSquared(new THREE.Vector3(px, item.root.position.y, pz)) < (radius + 1.2) ** 2) || this.emplacements.some(item => item.root.position.distanceToSquared(new THREE.Vector3(px, item.root.position.y, pz)) < (radius + 1.8) ** 2); if (!occupied && !this.navBlocked(px, pz, radius)) return new THREE.Vector3(px, this.terrainHeight(px, pz), pz) } } return new THREE.Vector3(x, this.terrainHeight(x, z), z) }
+  private battlefieldHalfWidth() { return this.mapBounds.halfWidth }
+  private battlefieldHalfDepth() { return this.mapBounds.halfDepth }
+  private openPlacement(x: number, z: number, radius: number) {
+    this.syncColliders()
+    for (let ring = 0; ring <= 10; ring++) {
+      const distance = ring * .85, count = Math.max(1, ring * 8)
+      for (let index = 0; index < count; index++) {
+        const angle = index / count * Math.PI * 2, px = x + Math.cos(angle) * distance, pz = z + Math.sin(angle) * distance
+        let occupied = false
+        for (const item of this.machineGuns) { if ((item.root.position.x - px) ** 2 + (item.root.position.z - pz) ** 2 < (radius + 1.2) ** 2) { occupied = true; break } }
+        if (!occupied) for (const item of this.emplacements) { if ((item.root.position.x - px) ** 2 + (item.root.position.z - pz) ** 2 < (radius + 1.8) ** 2) { occupied = true; break } }
+        if (!occupied && !this.navBlocked(px, pz, radius)) return new THREE.Vector3(px, this.terrainHeight(px, pz), pz)
+      }
+    }
+    return new THREE.Vector3(x, this.terrainHeight(x, z), z)
+  }
   private moveWithCollision(position: THREE.Vector3, dx: number, dz: number, radius: number) {
-    const blocked = (x: number, z: number) => this.colliders.some(box => x + radius > box.minX && x - radius < box.maxX && z + radius > box.minZ && z - radius < box.maxZ)
-    const width = this.battlefieldHalfWidth(), beforeX = position.x, beforeZ = position.z, nextX = THREE.MathUtils.clamp(position.x + dx, -width, width); if (!blocked(nextX, position.z)) position.x = nextX; const nextZ = THREE.MathUtils.clamp(position.z + dz, -58, 58); if (!blocked(position.x, nextZ)) position.z = nextZ; return Math.abs(position.x - beforeX) + Math.abs(position.z - beforeZ) > .001
+    this.syncColliders()
+    const blocked = (x: number, z: number) => this.colliderHash.blocked(x, z, radius)
+    const width = this.battlefieldHalfWidth(), depth = this.battlefieldHalfDepth(), beforeX = position.x, beforeZ = position.z
+    const nextX = THREE.MathUtils.clamp(position.x + dx, -width, width); if (!blocked(nextX, position.z)) position.x = nextX
+    const nextZ = THREE.MathUtils.clamp(position.z + dz, -depth, depth); if (!blocked(position.x, nextZ)) position.z = nextZ
+    return Math.abs(position.x - beforeX) + Math.abs(position.z - beforeZ) > .001
   }
   private moveTankWithCollision(position: THREE.Vector3, dx: number, dz: number) {
     const tank = this.tanks.find(candidate => candidate.alive && candidate.root.position === position), transport = this.transports.find(candidate => candidate.alive && candidate.root.position === position), vehicle = tank ?? transport, now = performance.now() / 1000
@@ -338,10 +432,21 @@ export class Game {
       const rammed = this.fieldStructures.find(structure => !structure.destroyed && overlaps(structure.collider, position.x + dx, position.z + dz))
       if (rammed) { this.damageStructure(rammed, 999); tank.ramSlowUntil = now + .65; tank.hp = Math.max(1, tank.hp - 6); tank.tracks = Math.max(0, tank.tracks - 4); this.status = `${tank.name}撞塌建筑`; this.statusUntil = now + 1.5; const sound = this.soundAt(rammed.root.position); this.audio.explosion(sound.volume * .55, sound.pan) }
     }
-    const obstacles = [...this.vehicleColliders, ...this.fortifications.filter(item => item.kind === 'hedgehog').flatMap(item => item.colliders)], blocked = (x: number, z: number) => obstacles.some(box => overlaps(box, x, z)), width = this.battlefieldHalfWidth() - Math.max(halfX, 1.8), depth = 59 - Math.max(halfZ, 1.8), distance = Math.hypot(dx, dz), slices = Math.max(1, Math.ceil(distance / .12)), stepX = dx / slices, stepZ = dz / slices
-    const before = position.clone(); for (let slice = 0; slice < slices; slice++) { const nextX = THREE.MathUtils.clamp(position.x + stepX, -width, width); if (!blocked(nextX, position.z)) position.x = nextX; const nextZ = THREE.MathUtils.clamp(position.z + stepZ, -depth, depth); if (!blocked(position.x, nextZ)) position.z = nextZ }
+    this.syncColliders()
+    const blocked = (x: number, z: number) => {
+      const hits = this.vehicleHash.query(x - halfX, x + halfX, z - halfZ, z + halfZ)
+      for (let i = 0; i < hits.length; i++) if (overlaps(hits[i], x, z)) return true
+      for (const item of this.fortifications) {
+        if (item.kind !== 'hedgehog') continue
+        for (const box of item.colliders) if (overlaps(box, x, z)) return true
+      }
+      return false
+    }
+    const width = this.battlefieldHalfWidth() - Math.max(halfX, 1.8), depth = this.battlefieldHalfDepth() + 1 - Math.max(halfZ, 1.8), distance = Math.hypot(dx, dz), slices = Math.max(1, Math.ceil(distance / .12)), stepX = dx / slices, stepZ = dz / slices
+    const beforeX = position.x, beforeY = position.y, beforeZ = position.z
+    for (let slice = 0; slice < slices; slice++) { const nextX = THREE.MathUtils.clamp(position.x + stepX, -width, width); if (!blocked(nextX, position.z)) position.x = nextX; const nextZ = THREE.MathUtils.clamp(position.z + stepZ, -depth, depth); if (!blocked(position.x, nextZ)) position.z = nextZ }
     position.y = this.terrainHeight(position.x, position.z)
-    const movement = position.clone().sub(before)
+    const movement = this.tmpV3A.set(position.x - beforeX, position.y - beforeY, position.z - beforeZ)
     if (tank) { const tankForward = new THREE.Vector3(0, 0, -1).applyQuaternion(tank.root.quaternion), roll = movement.dot(tankForward) / .31; for (const wheel of tank.wheels) wheel.rotateY(roll); this.resolveTankInteractions(tank, movement) }
     return movement.lengthSq() > .000001
   }
@@ -366,50 +471,39 @@ export class Game {
     if (!moving) return
     for (let index = this.fortifications.length - 1; index >= 0; index--) {
       const wire = this.fortifications[index]; if (wire.kind !== 'wire' || wire.center.distanceToSquared(tank.root.position) >= 2.8 ** 2) continue
-      this.fortifications.splice(index, 1); for (const collider of wire.colliders) { const colliderIndex = this.colliders.indexOf(collider); if (colliderIndex >= 0) this.colliders.splice(colliderIndex, 1) } for (const mesh of wire.meshes) { const point = mesh.position.clone(), coverIndex = this.coverMeshes.indexOf(mesh); if (coverIndex >= 0) this.coverMeshes.splice(coverIndex, 1); this.scene.remove(mesh); mesh.geometry.dispose(); const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]; materials.forEach(material => material.dispose()); for (let spark = 0; spark < 2; spark++) this.particle(point, new THREE.Vector3((Math.random() - .5) * 2, .4 + Math.random(), (Math.random() - .5) * 2), 0x5d5a4d, .055, .45, 2.5) }
+      this.fortifications.splice(index, 1); for (const collider of wire.colliders) { const colliderIndex = this.colliders.indexOf(collider); if (colliderIndex >= 0) this.colliders.splice(colliderIndex, 1) } for (const mesh of wire.meshes) { const point = mesh.position.clone(), coverIndex = this.coverMeshes.indexOf(mesh); if (coverIndex >= 0) this.coverMeshes.splice(coverIndex, 1); this.scene.remove(mesh); mesh.geometry.dispose(); const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]; materials.forEach(material => this.disposeMaterial(material)); for (let spark = 0; spark < 2; spark++) this.particle(point, new THREE.Vector3((Math.random() - .5) * 2, .4 + Math.random(), (Math.random() - .5) * 2), 0x5d5a4d, .055, .45, 2.5) }
       this.status = `${tank.name}碾毁铁丝网`; this.statusUntil = performance.now() / 1000 + 1.4
     }
   }
   private navBlocked(x: number, z: number, radius = .4) {
-    if (Math.abs(x) > this.battlefieldHalfWidth() - radius || Math.abs(z) > 59 - radius) return true
-    return this.colliders.some(collider => x + radius > collider.minX && x - radius < collider.maxX && z + radius > collider.minZ && z - radius < collider.maxZ)
+    if (Math.abs(x) > this.battlefieldHalfWidth() - radius || Math.abs(z) > this.battlefieldHalfDepth() + 1 - radius) return true
+    this.syncColliders()
+    return this.colliderHash.blocked(x, z, radius)
   }
   private navLineClear(from: THREE.Vector2, to: THREE.Vector2) {
-    const distance = from.distanceTo(to), steps = Math.ceil(distance / .55)
-    for (let index = 1; index < steps; index++) { const t = index / steps; if (this.navBlocked(THREE.MathUtils.lerp(from.x, to.x, t), THREE.MathUtils.lerp(from.y, to.y, t))) return false }
+    return this.navLineClearXZ(from.x, from.y, to.x, to.y)
+  }
+  private navLineClearXZ(ax: number, az: number, bx: number, bz: number) {
+    const distance = Math.hypot(bx - ax, bz - az), steps = Math.ceil(distance / .55)
+    for (let index = 1; index < steps; index++) {
+      const t = index / steps
+      if (this.navBlocked(ax + (bx - ax) * t, az + (bz - az) * t)) return false
+    }
     return true
   }
   private findBotPath(from: THREE.Vector2, target: THREE.Vector2) {
-    const spacing = 1.5, halfWidth = this.battlefieldHalfWidth(), columns = Math.floor(halfWidth * 2 / spacing) + 1, rows = Math.floor(118 / spacing) + 1, count = columns * rows
-    const cell = (x: number, z: number) => [THREE.MathUtils.clamp(Math.round((x + halfWidth) / spacing), 0, columns - 1), THREE.MathUtils.clamp(Math.round((z + 59) / spacing), 0, rows - 1)] as const
-    const world = (index: number) => new THREE.Vector2(index % columns * spacing - halfWidth, Math.floor(index / columns) * spacing - 59)
-    const nearestOpen = (start: number) => { if (!this.navBlocked(world(start).x, world(start).y)) return start; const sx = start % columns, sz = Math.floor(start / columns); for (let radius = 1; radius < 8; radius++) for (let dz = -radius; dz <= radius; dz++) for (let dx = -radius; dx <= radius; dx++) { if (Math.max(Math.abs(dx), Math.abs(dz)) !== radius) continue; const x = sx + dx, z = sz + dz; if (x < 0 || x >= columns || z < 0 || z >= rows) continue; const index = z * columns + x, point = world(index); if (!this.navBlocked(point.x, point.y)) return index } return start }
-    const [sx, sz] = cell(from.x, from.y), [tx, tz] = cell(target.x, target.y), start = nearestOpen(sz * columns + sx), goal = nearestOpen(tz * columns + tx)
-    const costs = new Float32Array(count); costs.fill(Infinity); costs[start] = 0
-    const came = new Int32Array(count); came.fill(-1); const open = [start], openSet = new Set(open)
-    const directions = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414]] as const
-    let guard = 0
-    while (open.length && guard++ < count * 5) {
-      let bestAt = 0, bestScore = Infinity
-      for (let index = 0; index < open.length; index++) { const node = open[index], point = world(node), score = costs[node] + point.distanceTo(world(goal)); if (score < bestScore) { bestScore = score; bestAt = index } }
-      const current = open.splice(bestAt, 1)[0]; openSet.delete(current); if (current === goal) break
-      const cx = current % columns, cz = Math.floor(current / columns)
-      for (const [dx, dz, cost] of directions) { const x = cx + dx, z = cz + dz; if (x < 0 || x >= columns || z < 0 || z >= rows) continue; const next = z * columns + x, point = world(next); if (this.navBlocked(point.x, point.y)) continue; if (dx && dz) { const sideA = world(cz * columns + x), sideB = world(z * columns + cx); if (this.navBlocked(sideA.x, sideA.y) || this.navBlocked(sideB.x, sideB.y)) continue } const nextCost = costs[current] + cost; if (nextCost >= costs[next]) continue; costs[next] = nextCost; came[next] = current; if (!openSet.has(next)) { open.push(next); openSet.add(next) } }
-    }
-    if (goal !== start && came[goal] < 0) return []
-    const raw: THREE.Vector2[] = [target.clone()]; for (let node = goal; node !== start && node >= 0; node = came[node]) raw.push(world(node)); raw.reverse()
-    const smooth: THREE.Vector2[] = []; let anchor = from, index = 0
-    while (index < raw.length) { let far = index; for (let candidate = index; candidate < Math.min(raw.length, index + 14); candidate++) if (this.navLineClear(anchor, raw[candidate])) far = candidate; smooth.push(raw[far]); anchor = raw[far]; index = far + 1 }
-    return smooth
+    this.syncColliders()
+    const path = this.pathfinder.findPath(from.x, from.y, target.x, target.y, (ax, az, bx, bz) => this.navLineClearXZ(ax, az, bx, bz))
+    return path.map(point => new THREE.Vector2(point.x, point.z))
   }
   private botNavDirection(bot: Bot, target: THREE.Vector2, time: number) {
-    const from = new THREE.Vector2(bot.root.position.x, bot.root.position.z)
-    if (from.distanceToSquared(target) < 16 || this.navLineClear(from, target)) { bot.navPath = undefined; bot.navTarget = undefined; return target.sub(from) }
+    const from = this.tmpV2A.set(bot.root.position.x, bot.root.position.z)
+    if (from.distanceToSquared(target) < 16 || this.navLineClear(from, target)) { bot.navPath = undefined; bot.navTarget = undefined; return this.tmpV2B.set(target.x - from.x, target.y - from.y) }
     const targetChanged = !bot.navTarget || bot.navTarget.distanceToSquared(target) > 4
-    if (targetChanged || !bot.navPath?.length || time >= (bot.navRefreshAt ?? 0)) { bot.navPath = this.findBotPath(from, target); bot.navTarget = target.clone(); bot.navIndex = 0; bot.navRefreshAt = time + 1.4 + Math.random() * .5 }
-    const waypoint = bot.navPath?.[bot.navIndex ?? 0]; if (!waypoint) return target.sub(from)
-    if (from.distanceToSquared(waypoint) < .75 ** 2 && (bot.navIndex ?? 0) < bot.navPath!.length - 1) { bot.navIndex = (bot.navIndex ?? 0) + 1; return bot.navPath[bot.navIndex].clone().sub(from) }
-    return waypoint.clone().sub(from)
+    if (targetChanged || !bot.navPath?.length || time >= (bot.navRefreshAt ?? 0)) { bot.navPath = this.findBotPath(from, target); bot.navTarget = target.clone(); bot.navIndex = 0; bot.navRefreshAt = time + 1.6 + Math.random() * .6 }
+    const waypoint = bot.navPath?.[bot.navIndex ?? 0]; if (!waypoint) return this.tmpV2B.set(target.x - from.x, target.y - from.y)
+    if (from.distanceToSquared(waypoint) < .75 ** 2 && (bot.navIndex ?? 0) < bot.navPath!.length - 1) { bot.navIndex = (bot.navIndex ?? 0) + 1; const next = bot.navPath[bot.navIndex]; return this.tmpV2B.set(next.x - from.x, next.y - from.y) }
+    return this.tmpV2B.set(waypoint.x - from.x, waypoint.y - from.y)
   }
   private moveBot(bot: Bot, dx: number, dz: number, speed: number, dt: number) {
     if (bot.vaultUntil) return true
@@ -620,7 +714,7 @@ export class Game {
     this.camera.add(this.weapon); this.scene.add(this.camera); this.buildWeapon()
   }
   private buildWeapon() {
-    this.reloadToken++; this.weapon.traverse(child => { if (!(child instanceof THREE.Mesh)) return; child.geometry.dispose(); const materials = Array.isArray(child.material) ? child.material : [child.material]; materials.forEach(material => material.dispose()) }); this.weapon.clear(); this.bolt.clear(); this.weaponMagazine = undefined
+    this.reloadToken++; this.weapon.traverse(child => { if (!(child instanceof THREE.Mesh)) return; child.geometry.dispose(); const materials = Array.isArray(child.material) ? child.material : [child.material]; materials.forEach(material => this.disposeMaterial(material)) }); this.weapon.clear(); this.bolt.clear(); this.weaponMagazine = undefined
     const loadout = this.activeLoadout(), id = loadout.id, machinePistol = loadout.weapon.includes('快慢机'), antiTankRifle = Boolean(loadout.vehicleDamage), wood = id === 'medic' ? 0x60401f : 0x75451f, metal = 0x202524
     const cylinder = (radius: number, length: number, position: [number, number, number], parent: THREE.Object3D = this.weapon) => { const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, length, 10), this.mat(metal, .28)); mesh.rotation.x = Math.PI / 2; mesh.position.set(...position); parent.add(mesh); return mesh }
     if (id === 'sidearm' || machinePistol) {
@@ -871,7 +965,7 @@ export class Game {
     const tool = new THREE.Group(), handle = new THREE.Mesh(new THREE.CylinderGeometry(.025, .032, .45, 7), this.mat(0x654326, .65)), head = new THREE.Mesh(new THREE.BoxGeometry(.28, .1, .1), this.mat(0x303532, .3)); handle.rotation.z = -.5; head.position.set(-.1, .18, 0); head.rotation.z = -.5; tool.add(handle, head); tool.position.set(.2, -.18, -.42); this.camera.add(tool); this.heldTool = tool; this.status = `正在构筑${this.buildLabel()} · 移动取消`; this.statusUntil = time + duration
   }
   private clearBuildAction(message?: string) {
-    const hadAction = Boolean(this.buildAction || this.heldTool); this.buildAction = undefined; const tool = this.heldTool; this.heldTool = undefined; if (tool) { tool.removeFromParent(); tool.traverse(child => { if (!(child instanceof THREE.Mesh)) return; child.geometry.dispose(); const materials = Array.isArray(child.material) ? child.material : [child.material]; materials.forEach(material => material.dispose()) }) }
+    const hadAction = Boolean(this.buildAction || this.heldTool); this.buildAction = undefined; const tool = this.heldTool; this.heldTool = undefined; if (tool) { tool.removeFromParent(); tool.traverse(child => { if (!(child instanceof THREE.Mesh)) return; child.geometry.dispose(); const materials = Array.isArray(child.material) ? child.material : [child.material]; materials.forEach(material => this.disposeMaterial(material)) }) }
     if (!this.dead && !this.bandagingUntil && !this.supplyAction && !this.grenadeCooking && !this.playerTank && !this.playerPlane && !this.playerMortar && !this.playerEmplacement && !this.playerMG && (!this.playerTransport || this.playerTransportPassenger)) this.weapon.visible = true
     if (message && hadAction) { this.status = message; this.statusUntil = performance.now() / 1000 + 1.3 }
   }
@@ -902,7 +996,7 @@ export class Game {
   }
   private enterMortar(mortar: Mortar) { this.playerMortar = mortar; mortar.occupied = true; this.weapon.visible = false; this.aiming = false; this.events.aim(false); this.camera.position.copy(mortar.position).add(new THREE.Vector3(0, 1.35, 0)); this.status = '迫击炮瞄准中'; this.statusUntil = performance.now() / 1000 + 1.3 }
   private leaveMortar() { const mortar = this.playerMortar; if (!mortar) return; mortar.occupied = false; this.playerMortar = undefined; this.mortarMarker.visible = false; this.weapon.visible = true; this.camera.position.copy(mortar.position).add(new THREE.Vector3(1.2, 1.72, 0)); this.events.loadout(this.activeLoadout()); this.events.ammo(this.mag, this.reserve, false) }
-  private mortarTarget() { const distance = THREE.MathUtils.clamp(22 + (-this.pitch + .15) * 30, 18, 62), direction = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), target = this.playerMortar!.position.clone().addScaledVector(direction, distance), width = this.battlefieldHalfWidth() - .8; target.x = THREE.MathUtils.clamp(target.x, -width, width); target.z = THREE.MathUtils.clamp(target.z, -57, 57); target.y = this.terrainHeight(target.x, target.z) + .14; return target }
+  private mortarTarget() { const distance = THREE.MathUtils.clamp(22 + (-this.pitch + .15) * 30, 18, 62), direction = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), target = this.playerMortar!.position.clone().addScaledVector(direction, distance), width = this.battlefieldHalfWidth() - .8, depth = this.battlefieldHalfDepth() - 1; target.x = THREE.MathUtils.clamp(target.x, -width, width); target.z = THREE.MathUtils.clamp(target.z, -depth, depth); target.y = this.terrainHeight(target.x, target.z) + .14; return target }
   private fireMortar() {
     const mortar = this.playerMortar, now = performance.now(); if (!mortar || !mortar.ammo || now < this.mortarShotAt) return; this.mortarShotAt = now + 3200; mortar.ammo--; this.mortarAmmo = mortar.ammo
     const target = this.mortarTarget(), origin = mortar.root.localToWorld(new THREE.Vector3(0, .75, -.22)), distance = origin.distanceTo(target), flight = THREE.MathUtils.clamp(distance / 19, 1.8, 3.5), velocity = target.clone().sub(origin).divideScalar(flight); velocity.y = 4.9 * flight
@@ -1038,7 +1132,7 @@ export class Game {
   private enterPlane(plane: Plane) { this.releasePlanePilot(plane); this.playerPlane = plane; plane.playerDriven = true; plane.speed = Math.max(plane.speed, 26); plane.throttle = Math.max(plane.throttle, .8); this.weapon.visible = false; this.aiming = false; this.yaw = plane.root.rotation.y; this.pitch = plane.root.rotation.x; this.planeStickPitch = this.pitch; this.events.aim(false); this.events.vehicle(true, plane.hp, true, plane.name, `左键机枪 · 右键/B 炸弹 ×${plane.bombs} · Q/E 方向舵 · E 跳伞`, plane.maxHp, plane.bombs / plane.maxBombs) }
   private leavePlane() { const plane = this.playerPlane; if (!plane) return; plane.playerDriven = false; plane.abandoned = true; plane.nextAttack = performance.now() / 1000; this.playerPlane = undefined; this.parachuting = true; this.weapon.visible = false; this.camera.position.copy(plane.root.position).add(new THREE.Vector3(0, -.8, 0)); this.events.vehicle(false, 0, false); this.deployParachute() }
   private deployParachute() { if (this.parachute) this.disposeGroup(this.parachute); const chute = new THREE.Group(), canopy = new THREE.Mesh(new THREE.SphereGeometry(1.8, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xd8d1b8, roughness: .9, side: THREE.DoubleSide })); canopy.scale.y = .42; chute.add(canopy); const lineMaterial = new THREE.LineBasicMaterial({ color: 0x5d574c }); for (const angle of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) { const rim = new THREE.Vector3(Math.sin(angle) * 1.65, 0, Math.cos(angle) * 1.65), geometry = new THREE.BufferGeometry().setFromPoints([rim, new THREE.Vector3(0, -2.6, 0)]); chute.add(new THREE.Line(geometry, lineMaterial.clone())) } this.scene.add(chute); this.parachute = chute }
-  private updateParachute(dt: number) { if (!this.parachuting) return; const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw)), movement = new THREE.Vector3(); if (this.keys.has('KeyW')) movement.add(forward); if (this.keys.has('KeyS')) movement.sub(forward); if (this.keys.has('KeyD')) movement.add(right); if (this.keys.has('KeyA')) movement.sub(right); if (movement.lengthSq()) this.camera.position.addScaledVector(movement.normalize(), dt * 4.2); this.camera.position.y -= dt * 3.6; const width = this.battlefieldHalfWidth() - .5; this.camera.position.x = THREE.MathUtils.clamp(this.camera.position.x, -width, width); this.camera.position.z = THREE.MathUtils.clamp(this.camera.position.z, -58, 58); this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ'); if (this.parachute) this.parachute.position.copy(this.camera.position).add(new THREE.Vector3(0, 2.6, 0)); const ground = this.terrainHeight(this.camera.position.x, this.camera.position.z); if (this.camera.position.y > ground + 1.72) return; this.groundLevel = ground; this.camera.position.y = ground + 1.72; this.parachuting = false; if (this.parachute) { this.disposeGroup(this.parachute); this.parachute = undefined } this.weapon.visible = true; this.events.loadout(this.activeLoadout()); this.events.ammo(this.mag, this.reserve, false) }
+  private updateParachute(dt: number) { if (!this.parachuting) return; const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw)), movement = new THREE.Vector3(); if (this.keys.has('KeyW')) movement.add(forward); if (this.keys.has('KeyS')) movement.sub(forward); if (this.keys.has('KeyD')) movement.add(right); if (this.keys.has('KeyA')) movement.sub(right); if (movement.lengthSq()) this.camera.position.addScaledVector(movement.normalize(), dt * 4.2); this.camera.position.y -= dt * 3.6; const width = this.battlefieldHalfWidth() - .5, depth = this.battlefieldHalfDepth(); this.camera.position.x = THREE.MathUtils.clamp(this.camera.position.x, -width, width); this.camera.position.z = THREE.MathUtils.clamp(this.camera.position.z, -depth, depth); this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ'); if (this.parachute) this.parachute.position.copy(this.camera.position).add(new THREE.Vector3(0, 2.6, 0)); const ground = this.terrainHeight(this.camera.position.x, this.camera.position.z); if (this.camera.position.y > ground + 1.72) return; this.groundLevel = ground; this.camera.position.y = ground + 1.72; this.parachuting = false; if (this.parachute) { this.disposeGroup(this.parachute); this.parachute = undefined } this.weapon.visible = true; this.events.loadout(this.activeLoadout()); this.events.ammo(this.mag, this.reserve, false) }
   private firePlayerPlane() {
     const plane = this.playerPlane, time = performance.now() / 1000; if (!plane || !plane.alive || time < plane.nextShot) return; plane.nextShot = time + .095; this.ray.setFromCamera(new THREE.Vector2((Math.random() - .5) * .008, (Math.random() - .5) * .008), this.camera)
     const targets = [...this.planes.filter(target => target.alive && target.team === 'enemy').map(target => target.hitbox), ...this.bots.filter(bot => bot.alive && bot.team === 'enemy').flatMap(bot => [bot.body, bot.head]), ...this.tanks.filter(target => target.alive && target.team === 'enemy').map(target => target.hitbox), ...this.transports.filter(target => target.alive && target.team === 'enemy').map(target => target.hitbox), ...this.emplacements.filter(target => target.alive && target.team === 'enemy').map(target => target.hitbox), ...this.coverMeshes], hit = this.ray.intersectObjects(targets, false)[0], targetPlane = hit?.object.userData.plane as Plane | undefined, bot = hit?.object.userData.bot as Bot | undefined, tank = hit?.object.userData.tank as Tank | undefined, transport = hit?.object.userData.transport as Transport | undefined, gun = hit?.object.userData.emplacement as Emplacement | undefined, start = plane.root.position.clone().add(new THREE.Vector3(0, 0, -2).applyEuler(plane.root.rotation)), end = hit?.point ?? this.ray.ray.at(180, new THREE.Vector3()); this.tracer(start, end, 0xffdf83); this.audio.shot('auto')
@@ -1287,7 +1381,7 @@ export class Game {
   private suppressBots(start: THREE.Vector3, end: THREE.Vector3) { const line = new THREE.Line3(start, end), closest = new THREE.Vector3(); for (const bot of this.bots) { if (!bot.alive || bot.team !== 'enemy') continue; const chest = bot.root.position.clone().add(new THREE.Vector3(0, 1.3, 0)); line.closestPointToPoint(chest, true, closest); const distance = closest.distanceTo(chest); if (distance < 3.2) bot.suppression = Math.min(1.6, bot.suppression + .18 + (3.2 - distance) * .06) } }
   private updateSuppression(dt: number) { if (!this.suppression) return; this.suppression = Math.max(0, this.suppression - dt * .16); this.events.suppression(this.suppression) }
   private updateMedkits(time: number) {
-    for (let index = this.medkits.length - 1; index >= 0; index--) { const medkit = this.medkits[index]; if (time >= medkit.expiresAt) { this.medkits.splice(index, 1); this.scene.remove(medkit.root); medkit.root.traverse(child => { if (!(child instanceof THREE.Mesh)) return; child.geometry.dispose(); const materials = Array.isArray(child.material) ? child.material : [child.material]; materials.forEach(material => material.dispose()) }); continue } if (time < medkit.nextHeal) continue; medkit.nextHeal = time + 1; for (const bot of this.bots) if (bot.alive && bot.team === medkit.team && bot.hp < 100 && bot.root.position.distanceToSquared(medkit.root.position) < 5 ** 2) bot.hp = Math.min(100, bot.hp + 12); if (medkit.team === 'ally' && !this.dead && !this.playerTank && this.hp < 100 && this.camera.position.distanceToSquared(medkit.root.position) < 5 ** 2) { this.hp = Math.min(100, this.hp + 8); this.events.health(this.hp, false) } }
+    for (let index = this.medkits.length - 1; index >= 0; index--) { const medkit = this.medkits[index]; if (time >= medkit.expiresAt) { this.medkits.splice(index, 1); this.scene.remove(medkit.root); medkit.root.traverse(child => { if (!(child instanceof THREE.Mesh)) return; child.geometry.dispose(); const materials = Array.isArray(child.material) ? child.material : [child.material]; materials.forEach(material => this.disposeMaterial(material)) }); continue } if (time < medkit.nextHeal) continue; medkit.nextHeal = time + 1; for (const bot of this.bots) if (bot.alive && bot.team === medkit.team && bot.hp < 100 && bot.root.position.distanceToSquared(medkit.root.position) < 5 ** 2) bot.hp = Math.min(100, bot.hp + 12); if (medkit.team === 'ally' && !this.dead && !this.playerTank && this.hp < 100 && this.camera.position.distanceToSquared(medkit.root.position) < 5 ** 2) { this.hp = Math.min(100, this.hp + 8); this.events.health(this.hp, false) } }
   }
   private updateEquipment(time: number) {
     if (this.parachuting || this.playerPlane || this.playerTransport) { this.events.equipment(this.grenades, this.aid, this.medkitAvailable, this.buildCharges, this.buildLabel(), this.mortarAmmo, Boolean(this.mortar), ''); return }
@@ -1303,13 +1397,37 @@ export class Game {
     this.events.equipment(this.grenades, this.aid, this.medkitAvailable, this.buildCharges, this.buildLabel(), this.mortarAmmo, Boolean(this.mortar), prompt)
   }
   private updateTactical(time: number) {
-    if (time < this.tacticalAt) return; this.tacticalAt = time + .1; const position = this.playerTank?.root.position ?? this.playerTransport?.root.position ?? this.playerEmplacement?.root.position ?? this.camera.position
-    const mapX = (x: number) => x * (this.battlefieldHalfWidth() > 12 ? .46 : 1), vehicles: [number, number, Team][] = [...this.tanks.filter(tank => tank.alive).map(tank => [mapX(tank.root.position.x), tank.root.position.z, tank.team] as [number, number, Team]), ...this.transports.filter(transport => transport.alive).map(transport => [mapX(transport.root.position.x), transport.root.position.z, transport.team] as [number, number, Team]), ...this.emplacements.filter(gun => gun.alive).map(gun => [mapX(gun.root.position.x), gun.root.position.z, gun.team] as [number, number, Team]), ...this.planes.filter(plane => plane.alive).map(plane => [mapX(plane.root.position.x), plane.root.position.z, plane.team] as [number, number, Team])]
-    this.events.tactical({ player: [mapX(position.x), position.z, this.yaw], infantry: this.bots.filter(bot => bot.alive && !bot.drivingTank && !bot.drivingTransport && !bot.piloting && !bot.chuting).map(bot => [mapX(bot.root.position.x), bot.root.position.z, bot.team]), tanks: vehicles, flags: this.objectives.map((point, index) => [point.id, mapX(point.position.x), point.position.z, point.owner, this.campaign.rule !== 'assault' || index === this.assaultIndex]), depots: this.depots.map(depot => [depot.id, mapX(depot.position.x), depot.position.z, depot.destroyed]) })
-    const roleName = (id: string) => this.battleLoadouts.find(item => item.id === id)?.name ?? '步枪兵', rows = (team: Team): ScoreRow[] => this.bots.filter(bot => bot.team === team).map(bot => ({ name: bot.name, role: roleName(bot.role), kills: bot.kills, deaths: bot.deaths, score: bot.kills * 100 + bot.objectiveScore, alive: bot.alive })).sort((a, b) => b.score - a.score || a.deaths - b.deaths); this.events.scoreboard([{ name: '札克利', role: this.selectedLoadout.name, kills: this.kills, deaths: this.deaths, score: this.kills * 100 + this.objectiveScore, player: true, alive: !this.dead }, ...rows('ally')], rows('enemy'))
+    if (time < this.tacticalAt) return
+    this.tacticalAt = time + .15
+    const position = this.playerTank?.root.position ?? this.playerTransport?.root.position ?? this.playerEmplacement?.root.position ?? this.camera.position
+    const mapX = (x: number) => x * (this.battlefieldHalfWidth() > 12 ? .46 : 1)
+    const vehicles: [number, number, Team][] = []
+    for (const tank of this.tanks) if (tank.alive) vehicles.push([mapX(tank.root.position.x), tank.root.position.z, tank.team])
+    for (const transport of this.transports) if (transport.alive) vehicles.push([mapX(transport.root.position.x), transport.root.position.z, transport.team])
+    for (const gun of this.emplacements) if (gun.alive) vehicles.push([mapX(gun.root.position.x), gun.root.position.z, gun.team])
+    for (const plane of this.planes) if (plane.alive) vehicles.push([mapX(plane.root.position.x), plane.root.position.z, plane.team])
+    const infantry: [number, number, Team][] = []
+    for (const bot of this.bots) if (bot.alive && !bot.drivingTank && !bot.drivingTransport && !bot.piloting && !bot.chuting) infantry.push([mapX(bot.root.position.x), bot.root.position.z, bot.team])
+    this.events.tactical({
+      player: [mapX(position.x), position.z, this.yaw],
+      infantry,
+      tanks: vehicles,
+      flags: this.objectives.map((point, index) => [point.id, mapX(point.position.x), point.position.z, point.owner, this.campaign.rule !== 'assault' || index === this.assaultIndex]),
+      depots: this.depots.map(depot => [depot.id, mapX(depot.position.x), depot.position.z, depot.destroyed]),
+    })
+    if (time < this.scoreboardAt) return
+    this.scoreboardAt = time + .45
+    const roleName = (id: string) => this.battleLoadouts.find(item => item.id === id)?.name ?? '步枪兵'
+    const rows = (team: Team): ScoreRow[] => {
+      const list: ScoreRow[] = []
+      for (const bot of this.bots) if (bot.team === team) list.push({ name: bot.name, role: roleName(bot.role), kills: bot.kills, deaths: bot.deaths, score: bot.kills * 100 + bot.objectiveScore, alive: bot.alive })
+      list.sort((a, b) => b.score - a.score || a.deaths - b.deaths)
+      return list
+    }
+    this.events.scoreboard([{ name: '札克利', role: this.selectedLoadout.name, kills: this.kills, deaths: this.deaths, score: this.kills * 100 + this.objectiveScore, player: true, alive: !this.dead }, ...rows('ally')], rows('enemy'))
   }
   private orderSquadMove() {
-    if (this.dead) return; const direction = new THREE.Vector3(); this.camera.getWorldDirection(direction); const distance = direction.y < -.05 ? Math.min(80, this.camera.position.y / -direction.y) : 55, width = this.battlefieldHalfWidth() - .7; this.squadTarget.copy(this.camera.position).addScaledVector(direction, distance); this.squadTarget.set(THREE.MathUtils.clamp(this.squadTarget.x, -width, width), 0, THREE.MathUtils.clamp(this.squadTarget.z, -58, 58)); this.squadMode = 'move'; this.squadMarker.position.copy(this.squadTarget).setY(2.8); this.squadMarker.visible = true; this.status = '小队：向标记位置进攻'; this.statusUntil = performance.now() / 1000 + 1.8
+    if (this.dead) return; const direction = new THREE.Vector3(); this.camera.getWorldDirection(direction); const distance = direction.y < -.05 ? Math.min(80, this.camera.position.y / -direction.y) : 55, width = this.battlefieldHalfWidth() - .7, depth = this.battlefieldHalfDepth(); this.squadTarget.copy(this.camera.position).addScaledVector(direction, distance); this.squadTarget.set(THREE.MathUtils.clamp(this.squadTarget.x, -width, width), 0, THREE.MathUtils.clamp(this.squadTarget.z, -depth, depth)); this.squadMode = 'move'; this.squadMarker.position.copy(this.squadTarget).setY(2.8); this.squadMarker.visible = true; this.status = '小队：向标记位置进攻'; this.statusUntil = performance.now() / 1000 + 1.8
   }
   private orderSquadFollow() {
     if (this.dead) return; this.squadMode = 'follow'; this.squadMarker.visible = false; this.status = '小队：跟我走'; this.statusUntil = performance.now() / 1000 + 1.8
@@ -1515,7 +1633,7 @@ export class Game {
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(plane.root.quaternion).multiplyScalar(plane.speed * .6); forward.y = Math.min(forward.y, 2)
     this.planeWrecks.push({ root, velocity: forward, rollVelocity: (Math.random() < .5 ? -1 : 1) * (1.6 + Math.random() * 2.5), state: 'fall', smokeAt: 0, restUntil: 0, team: plane.team, playerOwned, name: plane.name })
   }
-  private disposeWreck(wreck: PlaneWreck) { this.scene.remove(wreck.root); wreck.root.traverse(child => { if (!(child instanceof THREE.Mesh)) return; child.geometry.dispose(); const materials = Array.isArray(child.material) ? child.material : [child.material]; materials.forEach(material => material.dispose()) }) }
+  private disposeWreck(wreck: PlaneWreck) { this.scene.remove(wreck.root); wreck.root.traverse(child => { if (!(child instanceof THREE.Mesh)) return; child.geometry.dispose(); const materials = Array.isArray(child.material) ? child.material : [child.material]; materials.forEach(material => this.disposeMaterial(material)) }) }
   private updatePlaneWrecks(dt: number, time: number) {
     for (let index = this.planeWrecks.length - 1; index >= 0; index--) {
       const wreck = this.planeWrecks[index]
@@ -1524,7 +1642,7 @@ export class Game {
         if (time >= wreck.smokeAt) { wreck.smokeAt = time + .055; this.particle(wreck.root.position.clone(), new THREE.Vector3((Math.random() - .5), .5 + Math.random(), (Math.random() - .5)), Math.random() < .28 ? 0xff7a28 : 0x292b28, .24 + Math.random() * .35, 1 + Math.random() * .7, -.05, .8, .34) }
         if (wreck.root.position.y > .55) continue
         wreck.state = 'rest'; wreck.root.position.y = .45; wreck.root.rotation.set((Math.random() - .5) * .3, wreck.root.rotation.y, (Math.random() - .5) * .8); wreck.restUntil = time + 24; wreck.smokeAt = time
-        wreck.root.traverse(child => { if (!(child instanceof THREE.Mesh)) return; const materials = Array.isArray(child.material) ? child.material : [child.material]; materials.forEach(material => material.dispose()); child.material = this.mat(0x1d1c19, .95) })
+        wreck.root.traverse(child => { if (!(child instanceof THREE.Mesh)) return; const materials = Array.isArray(child.material) ? child.material : [child.material]; materials.forEach(material => this.disposeMaterial(material)); child.material = this.mat(0x1d1c19, .95) })
         const center = wreck.root.position.clone().setY(.6), blast = new THREE.Mesh(new THREE.SphereGeometry(.08, 6, 4), this.mat(0x22231f)); blast.position.copy(center); this.scene.add(blast); this.explode({ mesh: blast, velocity: new THREE.Vector3(), detonateAt: time, team: wreck.team, playerOwned: wreck.playerOwned, bomb: true, crash: true, sourceName: wreck.name }); wreck.collider = { minX: center.x - 2.2, maxX: center.x + 2.2, minZ: center.z - 2.2, maxZ: center.z + 2.2 }; this.vehicleColliders.push(wreck.collider)
       } else {
         if (time >= wreck.smokeAt && time < wreck.restUntil - 6) { wreck.smokeAt = time + .16; this.particle(wreck.root.position.clone().add(new THREE.Vector3((Math.random() - .5) * 2, .7, (Math.random() - .5) * 2)), new THREE.Vector3((Math.random() - .5) * .4, .7 + Math.random() * .8, (Math.random() - .5) * .4), 0x30322f, .3 + Math.random() * .25, 1.3 + Math.random(), -.08, .7, .4) }
@@ -1724,8 +1842,15 @@ export class Game {
     return positions.sort((a, b) => bot.root.position.distanceToSquared(a) - bot.root.position.distanceToSquared(b))[0]
   }
   private botCanSee(bot: Bot, position: THREE.Vector3) {
-    const start = bot.root.position.clone().add(new THREE.Vector3(0, 1.58, 0)), end = position.clone(), direction = end.sub(start), distance = direction.length(); if (distance < .1 || this.smokeBlocks(start, position)) return false
-    this.ray.set(start, direction.normalize()); this.ray.far = distance; const obstruction = this.ray.intersectObjects(this.coverMeshes, false)[0]; this.ray.far = Infinity; return !obstruction || obstruction.distance >= distance - .45
+    const start = this.tmpV3A.set(bot.root.position.x, bot.root.position.y + 1.58, bot.root.position.z)
+    const direction = this.tmpV3B.set(position.x - start.x, position.y - start.y, position.z - start.z)
+    const distance = direction.length()
+    if (distance < .1 || this.smokeBlocks(start, position)) return false
+    direction.multiplyScalar(1 / distance)
+    this.ray.set(start, direction); this.ray.far = distance
+    const obstruction = this.ray.intersectObjects(this.coverMeshes, false)[0]
+    this.ray.far = Infinity
+    return !obstruction || obstruction.distance >= distance - .45
   }
   private alertBots(shooterTeam: Team, position: THREE.Vector3) {
     const time = performance.now() / 1000
@@ -1768,7 +1893,15 @@ export class Game {
       if (this.tickets[ticketIndex] > 0) for (const bot of this.bots) if (bot.team === team && !bot.alive && time >= bot.respawnAt) this.reinforce(bot, time)
       this.reinforcementWaveAt[team] = time + 6
     }
-    const player = this.camera.position, enemies = this.bots.filter(b => b.team === 'enemy' && b.alive && !b.drivingTank && !b.drivingTransport && !b.piloting && !b.chuting), allies = this.bots.filter(b => b.team === 'ally' && b.alive && !b.drivingTank && !b.drivingTransport && !b.piloting && !b.chuting)
+    const player = this.camera.position
+    this.aliveEnemies.length = 0
+    this.aliveAllies.length = 0
+    for (const b of this.bots) {
+      if (!b.alive || b.drivingTank || b.drivingTransport || b.piloting || b.chuting) continue
+      if (b.team === 'enemy') this.aliveEnemies.push(b)
+      else this.aliveAllies.push(b)
+    }
+    const enemies = this.aliveEnemies, allies = this.aliveAllies
     for (const bot of this.bots) {
       if (!bot.alive) continue
       if (bot.chuting) continue
@@ -1846,8 +1979,32 @@ export class Game {
       const opponents = bot.team === 'ally' ? enemies : allies
       const playerVisible = bot.team === 'enemy' && !this.dead && !this.playerPlane && !this.parachuting && this.botCanSee(bot, player)
       let targetBot: Bot | undefined, targetTransport: Transport | undefined, targetDepot: Depot | undefined, targetPos = playerVisible ? player : bot.root.position, targetingPlayer = playerVisible, best = targetingPlayer ? bot.root.position.distanceToSquared(player) : Infinity
-      for (const candidate of opponents) { const aim = candidate.root.position.clone().add(new THREE.Vector3(0, 1.35, 0)), d = bot.root.position.distanceToSquared(candidate.root.position); if (d < best && this.botCanSee(bot, aim)) { best = d; targetBot = candidate; targetPos = candidate.root.position; targetingPlayer = false } }
-      for (const candidate of this.transports) { if (!candidate.alive || candidate.team === bot.team) continue; const aim = candidate.root.position.clone().setY(1), d = bot.root.position.distanceToSquared(candidate.root.position); if (d < best && this.botCanSee(bot, aim)) { best = d; targetBot = undefined; targetTransport = candidate; targetPos = candidate.root.position; targetingPlayer = false } }
+      {
+        // Only evaluate LOS for the nearest few candidates — full N×M raycasts dominate CPU.
+        let nearCount = 0
+        const nearBots: Bot[] = []
+        const nearDist: number[] = []
+        for (const candidate of opponents) {
+          const d = bot.root.position.distanceToSquared(candidate.root.position)
+          if (nearCount < 5) { nearBots[nearCount] = candidate; nearDist[nearCount] = d; nearCount++; continue }
+          let worst = 0
+          for (let i = 1; i < 5; i++) if (nearDist[i] > nearDist[worst]) worst = i
+          if (d < nearDist[worst]) { nearBots[worst] = candidate; nearDist[worst] = d }
+        }
+        for (let i = 0; i < nearCount; i++) {
+          const candidate = nearBots[i], d = nearDist[i]
+          if (d >= best) continue
+          const aim = this.tmpV3C.set(candidate.root.position.x, candidate.root.position.y + 1.35, candidate.root.position.z)
+          if (this.botCanSee(bot, aim)) { best = d; targetBot = candidate; targetPos = candidate.root.position; targetingPlayer = false }
+        }
+        for (const candidate of this.transports) {
+          if (!candidate.alive || candidate.team === bot.team) continue
+          const d = bot.root.position.distanceToSquared(candidate.root.position)
+          if (d >= best) continue
+          const aim = this.tmpV3C.set(candidate.root.position.x, 1, candidate.root.position.z)
+          if (this.botCanSee(bot, aim)) { best = d; targetBot = undefined; targetTransport = candidate; targetPos = candidate.root.position; targetingPlayer = false }
+        }
+      }
       if (targetBot || targetTransport || targetingPlayer) { bot.lastSeen = targetPos.clone(); bot.lastSeenUntil = time + 4.2 }
       let desiredDistance = weapon.distance
       if (!targetBot && !targetTransport && !targetingPlayer) {
@@ -2069,7 +2226,7 @@ export class Game {
     }
   }
   private update(dt: number, time: number) {
-    if (!this.active || this.matchOver || this.paused) { this.audio.stopEngine(); return }
+    if (!this.active || this.matchOver || this.paused) { this.audio.stopEngine(); if (this.combatLogBuffer.length) this.flushCombatLog(false); return }
     if (this.playerTank) { const load = this.keys.has('KeyW') || this.keys.has('KeyS') ? 1 : this.keys.has('KeyA') || this.keys.has('KeyD') ? .65 : .18, damage = Math.max(1 - this.playerTank.engine / 100, 1 - this.playerTank.hp / this.playerTank.maxHp); this.audio.engine(load, damage) } else this.audio.stopEngine()
     if ((this.parachuting || this.playerTransportPassenger || this.playerMortar || this.playerEmplacement || this.playerMG) && this.camera.fov !== 72) this.resetCameraView()
     this.updateGrenadeCook(dt, time); this.updateConstructionRisers(time); if (!this.dead) { this.updateBandage(time); this.updateSupplyAction(time); this.updateBuildAction(time) }

@@ -17,6 +17,8 @@ export type Campaign = {
   allies: number
   enemies: number
   flags: readonly { id: string; x: number; z: number; radius: number }[]
+  /** Optional playable extents. Defaults: halfWidth 28, halfDepth 58. */
+  bounds?: { halfWidth?: number; halfDepth?: number }
 }
 
 export const campaigns: readonly Campaign[] = [
