@@ -2,6 +2,7 @@ import './style.css'
 import { campaigns } from './game/campaigns'
 import { Game, type BattleOptions, type GameSettings } from './game/Game'
 import { loadoutsForCampaign } from './game/loadouts'
+import type { MinimapFeatures } from './game/map/types'
 
 const savedCampaign = Number(localStorage.getItem('battlefield1937_campaign') ?? 0)
 const campaignIndex = Number.isInteger(savedCampaign) && savedCampaign >= 0 && savedCampaign < campaigns.length ? savedCampaign : 0
@@ -48,10 +49,21 @@ let selectedClass = 0, selectedSpawn = 'base'
 let shownLoadout = battleLoadouts[0]
 const showDeployment = (wasKilled: boolean) => { deployTitle.textContent = wasKilled ? '阵亡' : '部署'; if (!wasKilled) { stats.textContent = '选择兵种与投入位置'; respawn.disabled = false; respawn.textContent = '投入战斗' } death.classList.remove('hidden') }
 const mapHalfW = campaign.bounds?.halfWidth ?? 28, mapHalfD = campaign.bounds?.halfDepth ?? 58
+let mapFeatures: MinimapFeatures | undefined
 const drawMap = (canvas: HTMLCanvasElement, value: Parameters<NonNullable<ConstructorParameters<typeof Game>[1]['tactical']>>[0]) => {
   const context = canvas.getContext('2d')!, width = canvas.width, height = canvas.height
   const point = (x: number, z: number): [number, number] => [width / 2 + x / mapHalfW * width * .42, (z + mapHalfD) / (mapHalfD * 2) * height]
-  context.fillStyle = '#111711'; context.fillRect(0, 0, width, height); context.fillStyle = '#303531'; context.fillRect(width * .31, 0, width * .38, height)
+  context.fillStyle = '#111711'; context.fillRect(0, 0, width, height)
+  if (mapFeatures) {
+    context.lineCap = 'round'
+    for (const water of mapFeatures.water) { const [x1, y1] = point(water.minX, water.minZ), [x2, y2] = point(water.maxX, water.maxZ); context.fillStyle = '#33474f'; context.fillRect(x1, y1, x2 - x1, y2 - y1) }
+    for (const road of mapFeatures.roads) { context.strokeStyle = '#383d34'; context.lineWidth = Math.max(2, road.width / mapHalfW * width * .42); context.beginPath(); road.points.forEach((p, index) => { const [px, py] = point(p.x, p.z); if (index) context.lineTo(px, py); else context.moveTo(px, py) }); context.stroke() }
+    for (const building of mapFeatures.buildings) { const [x1, y1] = point(building.minX, building.minZ), [x2, y2] = point(building.maxX, building.maxZ); context.fillStyle = '#262b28'; context.fillRect(x1, y1, Math.max(2.5, x2 - x1), Math.max(2.5, y2 - y1)) }
+    context.strokeStyle = '#5b544a'; context.lineWidth = 2
+    for (const wall of mapFeatures.walls) { const [x1, y1] = point(wall.x1, wall.z1), [x2, y2] = point(wall.x2, wall.z2); context.beginPath(); context.moveTo(x1, y1); context.lineTo(x2, y2); context.stroke() }
+    context.strokeStyle = '#4c463c'; context.lineWidth = 1
+    for (const rail of mapFeatures.rails) { const [x1, y1] = point(rail.x1, rail.z1), [x2, y2] = point(rail.x2, rail.z2); for (const offset of [-1.2, 1.2]) { context.beginPath(); context.moveTo(x1 + offset, y1); context.lineTo(x2 + offset, y2); context.stroke() } }
+  }
   context.strokeStyle = 'rgba(190,174,130,.2)'; context.lineWidth = 1
   const step = Math.max(12, Math.round(mapHalfD / 3 / 5) * 5)
   for (let z = -mapHalfD + step; z < mapHalfD; z += step) { const [, y] = point(0, z); context.beginPath(); context.moveTo(0, y); context.lineTo(width, y); context.stroke() }
@@ -94,6 +106,7 @@ const game = new Game($<HTMLCanvasElement>('#game'), {
   battle(tickets, state, progress, spawns, seconds) { const ticketLabel = (value: number) => Number.isFinite(value) ? String(value) : '∞'; allyTickets.textContent = ticketLabel(tickets[0]); enemyTickets.textContent = ticketLabel(tickets[1]); flags.textContent = state; matchTime.textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`; matchTime.classList.toggle('urgent', seconds <= 60); capture.textContent = progress ? `正在争夺 ${progress}` : ''; capture.classList.toggle('hidden', !progress); document.querySelectorAll<HTMLButtonElement>('.spawn').forEach(button => { if (button.dataset.spawn === 'base') return; button.disabled = !spawns.includes(button.dataset.spawn!); if (button.disabled && button.dataset.spawn === selectedSpawn) { selectedSpawn = 'base'; document.querySelectorAll('.spawn').forEach(x => x.classList.toggle('selected', x.getAttribute('data-spawn') === 'base')) } }) },
   end(won, kills, deaths, score) { clearInterval(deployTimer); campaignResults[campaign.id] = { won, kills, deaths, score, completedAt: Date.now() }; localStorage.setItem('battlefield1937_results', JSON.stringify(campaignResults)); const card = document.querySelector<HTMLElement>(`.campaign-card[data-campaign="${campaignIndex}"]`); card?.classList.remove('won', 'lost'); card?.classList.add(won ? 'won' : 'lost'); const result = card?.querySelector('span'); if (result) result.textContent = `${won ? '胜利' : '战败'} · 得分 ${score}`; const archiveCount = document.querySelector<HTMLElement>('#warArchive small'); if (archiveCount) archiveCount.textContent = `已完成 ${Object.keys(campaignResults).length} / ${campaigns.length}`; downed.classList.add('hidden'); scoreboard.classList.add('hidden'); death.classList.add('hidden'); hud.classList.add('hidden'); endTitle.textContent = won ? '胜利' : '战败'; endTitle.className = won ? 'win' : 'lose'; endText.textContent = won ? `${campaign.battlefield}仍在我军控制之下。部队将转赴下一处战场。` : `${campaign.battlefield}失守，但战争尚未结束，部队转入下一道防线。`; endStats.textContent = `得分 ${score}　击杀 ${kills}　阵亡 ${deaths}　战争进度 ${campaignIndex + 1} / ${campaigns.length}`; end.classList.remove('hidden') },
 }, campaign)
+mapFeatures = game.minimapFeatures
 game.configureBattle(battleOptions)
 game.configure(settings)
 void game
