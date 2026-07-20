@@ -6,7 +6,7 @@
 
 《战地 1937》是一款以中国人民抗日战争为背景的单机第一人称战场游戏原型。项目并非表现一段孤立的战斗，而是计划通过连续战役呈现 1937—1945 年间的整体战争进程。
 
-当前主版本使用 TypeScript、Three.js 与 Vite 开发，可直接在现代桌面浏览器中运行。仓库内同时保留早期 JavaScript 参考实现和 Godot 迁移实验，后续开发以 `web/` 为准。
+当前主版本使用 TypeScript、Three.js 与 Vite 开发，可直接在现代桌面浏览器中运行。仓库内另有 Godot 迁移实验，后续开发以 `web/` 为准。
 
 ### 当前内容
 
@@ -73,7 +73,7 @@ exportBattlefield1937Log()
 
 Battlefield 1937 is a single-player first-person battlefield prototype set during China's War of Resistance against Japanese Aggression. Rather than depicting one isolated engagement, the project aims to portray the wider 1937–1945 war through a connected campaign.
 
-The active version is built with TypeScript, Three.js, and Vite for modern desktop browsers. Earlier JavaScript and Godot experiments remain in the repository, while continued development targets `web/`.
+The active version is built with TypeScript, Three.js, and Vite for modern desktop browsers. A Godot migration experiment also remains in the repository, while continued development targets `web/`.
 
 ### Current Features
 
@@ -139,10 +139,8 @@ Every push to `main` triggers a GitHub Actions build of `web/` and deploys it to
 ## Repository Layout
 
 ```text
-web/      Active Three.js version
-godot/    Earlier Godot migration experiment
-js/       Earlier JavaScript reference implementation
-css/      Earlier reference styles
+web/      Active Three.js + Vite version
+godot/    Godot migration experiment
 _dev/     Development screenshots
 ```
 
