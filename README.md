@@ -1,23 +1,27 @@
-# 战地 1937
+# 战地 1937 / Battlefield 1937
 
-《战地 1937》是一款以中国人民抗日战争为背景的单机第一人称战场游戏原型。项目目标不是制作一段孤立关卡，而是用连续战役表现 1937—1945 年间的整体战争进程。
+[中文](#中文) · [English](#english)
 
-当前主版本使用 TypeScript、Three.js 与 Vite 开发，可直接在现代桌面浏览器中运行。仓库内同时保留早期 JavaScript 参考实现和 Godot 迁移实验，但后续开发以 `web/` 为准。
+## 中文
 
-## 当前内容
+《战地 1937》是一款以中国人民抗日战争为背景的单机第一人称战场游戏原型。项目并非表现一段孤立的战斗，而是计划通过连续战役呈现 1937—1945 年间的整体战争进程。
+
+当前主版本使用 TypeScript、Three.js 与 Vite 开发，可直接在现代桌面浏览器中运行。仓库内同时保留早期 JavaScript 参考实现和 Godot 迁移实验，后续开发以 `web/` 为准。
+
+### 当前内容
 
 - 多场战役与战争进度档案
-- 步兵第一人称移动、瞄准、射击、换弹、近战及多兵种装备
-- 双方步兵 AI、增援、战术目标、掩体和基础寻路
-- 坦克、运兵车、飞机及固定火炮
+- 步兵移动、瞄准、射击、换弹、近战与多兵种装备
+- 双方步兵 AI、增援、战术目标、掩体与基础寻路
+- 坦克、运兵车、飞机与固定火炮
 - 装甲分区、穿深、乘员和载具部件损伤
-- 建筑破坏、废墟、弹道遮挡和战场工事
-- 占领、进攻与爆破等战斗规则
-- 命中伤害、击杀反馈、连杀提示和战场记分板
-- 倒地救治、医疗兵救援、放弃治疗及死亡回放
-- 持久化战斗日志，便于复盘伤害来源和载具销毁问题
+- 建筑破坏、废墟、弹道遮挡与战场工事
+- 占领、进攻和爆破等战斗规则
+- 命中伤害、击杀反馈、连杀提示与战场记分板
+- 倒地救治、医疗兵救援、放弃治疗与死亡回放
+- 持久化战斗日志，用于复盘伤害来源和载具销毁问题
 
-## 运行
+### 本地运行
 
 需要 Node.js 和 npm。
 
@@ -27,8 +31,6 @@ npm install
 npm run dev
 ```
 
-Vite 会输出本地访问地址，通常为 `http://localhost:5173/`。
-
 生产构建：
 
 ```bash
@@ -37,7 +39,7 @@ npm run build
 npm run preview
 ```
 
-## 操作
+### 操作
 
 | 按键 | 操作 |
 | --- | --- |
@@ -47,42 +49,111 @@ npm run preview
 | 右键 | 瞄准或载具副武器 |
 | `R` | 换弹 |
 | `1` / `2` | 切换武器 |
-| `G` | 手雷 |
-| `X` | 烟雾弹 |
-| `H` | 使用绷带 |
-| `V` | 刺刀近战 |
+| `G` / `X` | 手雷 / 烟雾弹 |
+| `H` / `V` | 使用绷带 / 刺刀近战 |
 | `C` / `Z` | 蹲伏 / 卧倒 |
 | `E` | 互动、进入或离开载具 |
 | `T` / `Y` | 小队进攻 / 跟随命令 |
 | `Tab` | 战场记分板 |
-| 倒地时长按 `Space` | 放弃治疗并进入重新部署 |
+| 倒地时长按 `Space` | 放弃治疗并重新部署 |
 
-## 战斗日志
+### 战斗日志
 
-战斗日志保存在浏览器的 `localStorage` 中，键名为 `battlefield1937_combat_log`，最多保留最近 400 条记录，同时会输出到开发者控制台。
-
-在浏览器控制台执行以下命令可导出 JSON 日志：
+战斗日志保存在浏览器 `localStorage` 的 `battlefield1937_combat_log` 中，最多保留最近 400 条记录。可在浏览器控制台执行以下命令导出 JSON：
 
 ```js
 exportBattlefield1937Log()
 ```
 
-日志包含时间、战役、玩家位置、伤害数值、攻击来源、距离、载具型号、命中部位和剩余耐久等信息。
+### GitHub Pages
 
-## 目录
+推送到 `main` 后，GitHub Actions 会构建 `web/` 并发布到 GitHub Pages。首次使用时，在仓库的 **Settings → Pages → Build and deployment** 中将 Source 设为 **GitHub Actions**。
 
-```text
-web/      当前 Three.js 主版本
-godot/    早期 Godot 迁移实验
-js/       早期 JavaScript 参考实现
-css/      早期参考样式
-_dev/     开发阶段截图
+## English
+
+Battlefield 1937 is a single-player first-person battlefield prototype set during China's War of Resistance against Japanese Aggression. Rather than depicting one isolated engagement, the project aims to portray the wider 1937–1945 war through a connected campaign.
+
+The active version is built with TypeScript, Three.js, and Vite for modern desktop browsers. Earlier JavaScript and Godot experiments remain in the repository, while continued development targets `web/`.
+
+### Current Features
+
+- Multiple battles and persistent war progression
+- Infantry movement, aiming, shooting, reloading, melee, and class equipment
+- Friendly and enemy AI, reinforcements, objectives, cover, and basic pathfinding
+- Tanks, troop transports, aircraft, and stationary weapons
+- Armor zones, penetration, crew damage, and vehicle component damage
+- Destructible buildings, rubble, projectile obstruction, and fortifications
+- Conquest, assault, and demolition combat rules
+- Hit damage, kill feedback, multikill awards, and scoreboard
+- Downed state, medic revival, giving up, and death replay
+- Persistent combat logs for damage and vehicle-destruction diagnosis
+
+### Local Development
+
+Node.js and npm are required.
+
+```bash
+cd web
+npm install
+npm run dev
 ```
 
-## 项目状态
+Production build:
 
-项目目前处于可玩原型阶段。核心战场循环已经建立，但美术资产、动画、AI 导航、地图设计、载具物理、性能和战役内容仍需继续精细化。
+```bash
+cd web
+npm run build
+npm run preview
+```
 
-## 题材说明
+### Controls
 
-本项目以历史战争为题材，旨在表现中国军民抗击日本侵略的历史背景。游戏中的单位、装备和战场系统仍属于原型化表达，不应视为严格的历史复原。
+| Input | Action |
+| --- | --- |
+| `WASD` | Move or drive |
+| Mouse | Look and aim |
+| Left mouse button | Fire or use the vehicle's primary weapon |
+| Right mouse button | Aim or use the vehicle's secondary weapon |
+| `R` | Reload |
+| `1` / `2` | Switch weapons |
+| `G` / `X` | Grenade / smoke grenade |
+| `H` / `V` | Bandage / bayonet melee |
+| `C` / `Z` | Crouch / prone |
+| `E` | Interact, enter, or leave a vehicle |
+| `T` / `Y` | Order squad to attack / follow |
+| `Tab` | Scoreboard |
+| Hold `Space` while downed | Give up and redeploy |
+
+### Combat Logs
+
+Up to 400 recent events are stored in browser `localStorage` under `battlefield1937_combat_log`. Run the following command in the browser console to export them as JSON:
+
+```js
+exportBattlefield1937Log()
+```
+
+### GitHub Pages
+
+Every push to `main` triggers a GitHub Actions build of `web/` and deploys it to GitHub Pages. For the first deployment, select **GitHub Actions** under **Settings → Pages → Build and deployment** in the repository.
+
+## Repository Layout
+
+```text
+web/      Active Three.js version
+godot/    Earlier Godot migration experiment
+js/       Earlier JavaScript reference implementation
+css/      Earlier reference styles
+_dev/     Development screenshots
+```
+
+## Status and Historical Context
+
+This project is currently a playable prototype. Art, animation, AI navigation, map design, vehicle physics, performance, and campaign content remain in active development.
+
+The project addresses a historical war and the resistance of the Chinese people against Japanese invasion. Its units, equipment, and battlefield systems are still prototype representations and should not be treated as a strictly accurate historical reconstruction.
+
+## License / 许可证
+
+项目代码以 [MIT License](LICENSE) 开源。第三方素材遵循各自目录内标注的许可证。
+
+Project source code is released under the [MIT License](LICENSE). Third-party assets remain subject to the licenses documented in their respective directories.
