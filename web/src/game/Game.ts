@@ -11,6 +11,7 @@ import type { Collider, FieldStructure, Ladder, MinimapFeatures, Platform, Urban
 import { CombatTargets } from './combatTargets'
 import { FxPool } from './fxPool'
 import { buildStaticCover } from './map/staticCover'
+import { buildPlane, buildSoldier, buildTank, buildTransport } from './models'
 
 type Team = 'ally' | 'enemy'
 type TankCrewRole = 'driver' | 'gunner' | 'commander' | 'loader'
@@ -21,7 +22,7 @@ type Tank = { root: THREE.Group; turret: THREE.Group; pitch: THREE.Group; barrel
 type TransportMission = 'pickup' | 'transit' | 'unload' | 'return'
 type Transport = { root: THREE.Group; hitbox: THREE.Mesh; wheels: THREE.Mesh[]; team: Team; name: string; maxHp: number; hp: number; alive: boolean; playerDriven: boolean; driver?: Bot; wreckCollider?: Collider; mission: TransportMission; waitUntil: number; nextDrop: number; stalledFor: number; reverseUntil: number; reverseTurn: number; nextSmoke: number; lastDamageAt: number; respawnAt: number }
 type Emplacement = { root: THREE.Group; yaw: THREE.Group; muzzle: THREE.Object3D; hitbox: THREE.Mesh; team: Team; kind: 'at' | 'aa'; hp: number; alive: boolean; occupied: boolean; operator?: Bot; operatorUntil: number; nextShot: number; respawnAt: number }
-type Plane = { root: THREE.Group; hitbox: THREE.Mesh; team: Team; name: string; maxHp: number; hp: number; alive: boolean; playerDriven: boolean; abandoned: boolean; pilot?: Bot; speed: number; throttle: number; angle: number; bombs: number; maxBombs: number; nextBomb: number; bombRearmAt: number; stallWarned: boolean; nextAttack: number; nextShot: number; respawnAt: number; lastDamageCause?: string; lastDamageSource?: THREE.Vector3 }
+type Plane = { root: THREE.Group; hitbox: THREE.Mesh; prop?: THREE.Group; team: Team; name: string; maxHp: number; hp: number; alive: boolean; playerDriven: boolean; abandoned: boolean; pilot?: Bot; speed: number; throttle: number; angle: number; bombs: number; maxBombs: number; nextBomb: number; bombRearmAt: number; stallWarned: boolean; nextAttack: number; nextShot: number; respawnAt: number; lastDamageCause?: string; lastDamageSource?: THREE.Vector3 }
 type BailedPilot = { root: THREE.Group; chute: THREE.Group; team: Team; velocity: THREE.Vector3; landedAt: number; bot?: Bot }
 type PlaneWreck = { root: THREE.Group; velocity: THREE.Vector3; rollVelocity: number; state: 'fall' | 'rest'; smokeAt: number; restUntil: number; team: Team; playerOwned: boolean; name: string; collider?: Collider }
 type Particle = { mesh: THREE.Mesh; velocity: THREE.Vector3; age: number; life: number; gravity: number; grow: number; baseOpacity?: number; pooled?: boolean }
@@ -638,29 +639,10 @@ export class Game {
   private forces() { for (let i = 0; i < this.campaign.allies; i++) this.bot('ally', -5.5 + i % 6 * 2.2, 39 + Math.floor(i / 6) * 3 - Math.abs(i % 6 - 2.5)); for (let i = 0; i < this.campaign.enemies; i++) this.bot('enemy', -7 + i % 6 * 2.8, -34 - Math.floor(i / 6) * 4) }
   private bot(team: Team, x: number, z: number) {
     const index = this.bots.filter(bot => bot.team === team).length, role = (team === 'ally' ? this.battleLoadouts : loadouts)[index % loadouts.length].id, inSquad = team === 'ally' && index < 3, cpc = team === 'ally' && this.campaign.id === 'baituan'
-    const root = new THREE.Group(); root.position.set(x, this.terrainHeight(x, z), z); root.rotation.y = team === 'ally' ? Math.PI : 0; this.scene.add(root)
-    // Upper body lives under torso so crouch/prone move gear together (no scale.y squash).
-    const torso = new THREE.Group(); root.add(torso)
-    const color = team === 'ally' ? cpc ? 0x777d72 : 0x4f6b61 : 0x8a7b4b, body = new THREE.Mesh(new THREE.CapsuleGeometry(.31, .72, 5, 9), this.mat(color)); body.position.y = 1.37; body.castShadow = true; torso.add(body)
-    const head = new THREE.Mesh(new THREE.SphereGeometry(.27, 12, 9), this.mat(0xb88968)); head.position.y = 2.14; torso.add(head)
-    const helmetColor = team === 'ally' ? cpc ? 0x777d72 : 0x3d5149 : 0x68613c, helmet = new THREE.Mesh(new THREE.SphereGeometry(.32, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), this.mat(helmetColor)); helmet.position.y = cpc ? 2.29 : 2.31; if (cpc) helmet.scale.set(1.05, .38, 1.12); torso.add(helmet)
-    if (cpc) { this.box([.38, .075, .34], [0, 2.35, 0], helmetColor, torso); this.box([.29, .035, .12], [0, 2.3, -.27], helmetColor, torso); this.box([.045, .045, .025], [0, 2.37, -.183], 0xb52e28, torso) }
-    else if (team === 'enemy') { const brim = new THREE.Mesh(new THREE.CylinderGeometry(.35, .37, .045, 12), this.mat(helmetColor)); brim.position.y = 2.3; torso.add(brim); this.box([.035, .05, .025], [0, 2.39, -.285], 0xd8b840, torso) }
-    else { this.box([.045, .045, .025], [0, 2.39, -.292], 0x2050b0, torso); this.box([.02, .02, .028], [0, 2.39, -.307], 0xe8e8e8, torso) }
-    this.box([.66, .075, .42], [0, 1.31, 0], 0x3a3428, torso); this.box([.43, .53, .18], [0, 1.45, .29], team === 'ally' ? 0x465043 : 0x656044, torso)
-    for (const px of [-.22, .22]) { const strap = this.box([.055, .72, .035], [px, 1.51, -.292], 0x423728, torso); strap.rotation.z = px * -.16 }
-    const legs = [-.18, .18].map(px => { const pivot = new THREE.Group(); pivot.position.set(px, 1, 0); const mesh = new THREE.Mesh(new THREE.CapsuleGeometry(.11, .58, 4, 7), this.mat(team === 'ally' ? 0x3f463f : 0x575438)); mesh.position.y = -.38; pivot.add(mesh); this.box([.24, .22, .38], [0, -.79, -.045], 0x29251f, pivot); root.add(pivot); return pivot })
-    const arms: THREE.Mesh[] = []; for (const px of [-.38, .38]) { const arm = new THREE.Mesh(new THREE.CapsuleGeometry(.095, .5, 4, 7), this.mat(color)); arm.position.set(px, 1.45, -.18); arm.rotation.x = -.9; torso.add(arm); arms.push(arm) }
-    const roleColor = role === 'medic' ? 0xe5e2d2 : role === 'support' ? 0xd2ad55 : role === 'anti-tank' ? 0xc86f43 : role === 'scout' ? 0x88a879 : 0x6f8c75, roleBadge = new THREE.Mesh(new THREE.BoxGeometry(.13, .13, .035), new THREE.MeshBasicMaterial({ color: roleColor })); roleBadge.position.set(.34, 1.6, -.28); torso.add(roleBadge)
-    if (role === 'medic') { const cross = new THREE.Mesh(new THREE.BoxGeometry(.06, .16, .04), new THREE.MeshBasicMaterial({ color: 0xb73c34 })); cross.position.set(.34, 1.6, -.305); torso.add(cross); const bar = cross.clone(); bar.geometry = new THREE.BoxGeometry(.16, .06, .04); torso.add(bar) }
-    const weapon = new THREE.Group(); torso.add(weapon); const wood = cpc ? 0x55351f : team === 'enemy' ? 0x5f4326 : 0x4b2e1b, metal = 0x242927; let muzzleZ = -1.28
-    if (role === 'assault') { this.box([.12, .12, .72], [.18, 1.36, -.48], metal, weapon); this.box([.14, .15, .42], [.18, 1.34, .06], wood, weapon); const barrel = this.box([.055, .055, .58], [.18, 1.36, -1.13], metal, weapon); barrel.rotation.x = -.03; const magazine = this.box(cpc ? [.12, .42, .18] : [.16, .4, .14], [cpc ? .18 : team === 'enemy' ? .18 : -.02, 1.12, -.5], metal, weapon); if (team === 'ally' && !cpc) magazine.rotation.z = Math.PI / 2; muzzleZ = -1.44 }
-    else if (role === 'support') { this.box([.14, .14, 1.05], [.18, 1.35, -.42], wood, weapon); this.box([.11, .11, .9], [.18, 1.36, -1.25], metal, weapon); this.box([.2, .28, .25], [.18, 1.61, -.65], metal, weapon); for (const side of [-.09, .09]) { const leg = this.box([.035, .55, .035], [.18 + side, 1.03, -1.62], metal, weapon); leg.rotation.z = side < 0 ? -.24 : .24 } muzzleZ = -1.72 }
-    else if (role === 'anti-tank' && team === 'enemy') { this.box([.15, .15, 1.15], [.18, 1.34, -.35], wood, weapon); this.box([.16, .16, 1.15], [.18, 1.37, -1.42], metal, weapon); this.box([.24, .34, .2], [.18, 1.13, -.82], metal, weapon); for (const side of [-.12, .12]) { const leg = this.box([.035, .7, .035], [.18 + side, 1.02, -2], metal, weapon); leg.rotation.z = side < 0 ? -.27 : .27 } muzzleZ = -2.12 }
-    else { const rifle = this.box([.1, .1, 1.45], [.18, 1.35, -.48], wood, weapon); rifle.rotation.x = -.15; this.box([.065, .065, .82], [.18, 1.35, -1.32], metal, weapon); if (role === 'scout') { const scope = new THREE.Mesh(new THREE.CylinderGeometry(.055, .055, .5, 8), this.mat(0x252a28, .3)); scope.rotation.x = Math.PI / 2; scope.position.set(.18, 1.53, -.72); weapon.add(scope) } muzzleZ = -1.75 }
-    const muzzleMaterial = new THREE.MeshBasicMaterial({ color: 0xffc45e }); const muzzle = new THREE.Mesh(new THREE.SphereGeometry(.13, 8, 6), muzzleMaterial); muzzle.position.set(.18, 1.34, muzzleZ); muzzle.scale.set(1, 1, 2.4); muzzle.visible = false; weapon.add(muzzle)
+    const mesh = buildSoldier({ team, role, cpc, inSquad, box: (s, p, c, parent) => this.box(s, p, c, parent), mat: (c, r) => this.mat(c, r) })
+    mesh.root.position.set(x, this.terrainHeight(x, z), z); mesh.root.rotation.y = team === 'ally' ? Math.PI : 0; this.scene.add(mesh.root)
+    const { root, torso, body, head, weapon, muzzle, legs, arms, squadTag } = mesh
     const allyNames = cpc ? ['李云龙', '赵刚', '王铁蛋', '孙德胜', '张大彪', '魏和尚', '段鹏', '沈泉', '邢志国', '陈铁柱', '石头', '柱子'] : ['陈树生', '姚子青', '谢晋元', '杨瑞符', '雷雄', '王根英', '李增援', '张自忠', '戴安澜'], enemyNames = ['佐藤', '山田', '高桥', '中村', '小林', '渡边', '伊藤', '加藤', '吉田', '山本', '清水', '松本', '井上', '木村', '林田', '藤原'], name = team === 'ally' ? allyNames[index % allyNames.length] : enemyNames[index % enemyNames.length]
-    const squadTag = inSquad ? new THREE.Mesh(new THREE.OctahedronGeometry(.13), new THREE.MeshBasicMaterial({ color: 0x86ffa6, depthTest: false })) : undefined; if (squadTag) { squadTag.position.y = 2.85; squadTag.renderOrder = 7; torso.add(squadTag) }
     const botLoadout = (team === 'ally' ? this.battleLoadouts : loadouts).find(item => item.id === role), bot: Bot = { root, torso, body, head, weapon, muzzle, team, role, name, kills: 0, deaths: 0, objectiveScore: 0, hp: 100, alive: true, inSquad, squadTag, antiTank: role === 'anti-tank' && !(team === 'ally' && this.campaign.id === 'baituan'), antiTankGrenades: role === 'support' ? 2 : botLoadout?.antiTankGrenades ?? 0, nextAidAt: 8 + Math.random() * 8, nextRocket: 6 + Math.random() * 8, nextMortar: 5 + Math.random() * 5, mortarRigUntil: 0, lastSeenUntil: 0, phase: Math.random() * Math.PI * 2, legs, arms, mag: this.botWeapon(role, team).magazine, reloadUntil: 0, bandages: 1, bandageUntil: 0, coverUntil: 0, nextCoverAt: 0, reviveUntil: 0, nextShot: 1 + Math.random() * 2, shotAt: -10, nextMelee: 0, meleeAt: -10, nextGrenade: 7 + Math.random() * 10, throwAt: -10, grenades: 1, smokes: 1, smokeAt: 12 + Math.random() * 10, suppression: 0, nextWireDamage: 0, reviveAt: 0, respawnAt: 0, deathToken: 0, strafe: Math.random() < .5 ? -1 : 1, chuting: false, pose: 'stand' }; body.userData.bot = bot; body.userData.hitZone = 'body'; head.userData.bot = bot; head.userData.hitZone = 'head'; this.bots.push(bot)
   }
   /** Crouch/prone via bone-like offsets — never squash root.scale.y. */
@@ -698,24 +680,25 @@ export class Game {
     bot.arms[1].rotation.x = THREE.MathUtils.damp(bot.arms[1].rotation.x, -1.25, 12, dt)
   }
   private tank(team: Team) {
-    const root = new THREE.Group(); this.scene.add(root); const captured = team === 'ally' && this.campaign.id === 'baituan', index = this.tanks.filter(tank => tank.team === team).length
+    const captured = team === 'ally' && this.campaign.id === 'baituan', index = this.tanks.filter(tank => tank.team === team).length
     const kmt = [
-      { name: '维克斯 6 吨轻型坦克', maxHp: 520, crew: 2, gunDamage: 210, gunPen: 52, color: 0x5c6858, armor: { front: 17, side: 13, rear: 10, turret: 17, top: 9 } },
-      { name: 'T-26 援华轻型坦克', maxHp: 640, crew: 3, gunDamage: 250, gunPen: 70, color: 0x556050, armor: { front: 15, side: 15, rear: 10, turret: 15, top: 10 } },
-      { name: 'M3 斯图亚特（美援）', maxHp: 620, crew: 3, gunDamage: 200, gunPen: 70, color: 0x5d7050, armor: { front: 44, side: 29, rear: 25, turret: 44, top: 13 } },
+      { name: '维克斯 6 吨轻型坦克', maxHp: 520, crew: 2, gunDamage: 210, gunPen: 52, color: 0x5c6858, armor: { front: 17, side: 13, rear: 10, turret: 17, top: 9 }, style: 'light' as const },
+      { name: 'T-26 援华轻型坦克', maxHp: 640, crew: 3, gunDamage: 250, gunPen: 70, color: 0x556050, armor: { front: 15, side: 15, rear: 10, turret: 15, top: 10 }, style: 'medium' as const },
+      { name: 'M3 斯图亚特（美援）', maxHp: 620, crew: 3, gunDamage: 200, gunPen: 70, color: 0x5d7050, armor: { front: 44, side: 29, rear: 25, turret: 44, top: 13 }, style: 'light' as const },
     ]
     const cpc = [
-      { name: '九七式中战车（缴获）', maxHp: 600, crew: 3, gunDamage: 250, gunPen: 86, color: 0x687062, armor: { front: 47, side: 25, rear: 20, turret: 47, top: 12 } },
-      { name: '九五式轻战车（缴获）', maxHp: 430, crew: 2, gunDamage: 160, gunPen: 42, color: 0x636b5e, armor: { front: 12, side: 12, rear: 10, turret: 12, top: 9 } },
+      { name: '九七式中战车（缴获）', maxHp: 600, crew: 3, gunDamage: 250, gunPen: 86, color: 0x687062, armor: { front: 47, side: 25, rear: 20, turret: 47, top: 12 }, style: 'medium' as const },
+      { name: '九五式轻战车（缴获）', maxHp: 430, crew: 2, gunDamage: 160, gunPen: 42, color: 0x636b5e, armor: { front: 12, side: 12, rear: 10, turret: 12, top: 9 }, style: 'light' as const },
     ]
     const japanese = [
-      { name: '九五式轻战车', maxHp: 430, crew: 2, gunDamage: 160, gunPen: 42, color: 0x756e48, armor: { front: 12, side: 12, rear: 10, turret: 12, top: 9 } },
-      { name: '九七式改中战车', maxHp: 650, crew: 3, gunDamage: 260, gunPen: 86, color: 0x6f6a4c, armor: { front: 47, side: 25, rear: 20, turret: 47, top: 12 } },
-      { name: '一式炮战车', maxHp: 500, crew: 3, gunDamage: 330, gunPen: 104, color: 0x6a6548, armor: { front: 50, side: 25, rear: 12, turret: 16, top: 0 } },
+      { name: '九五式轻战车', maxHp: 430, crew: 2, gunDamage: 160, gunPen: 42, color: 0x756e48, armor: { front: 12, side: 12, rear: 10, turret: 12, top: 9 }, style: 'light' as const },
+      { name: '九七式改中战车', maxHp: 650, crew: 3, gunDamage: 260, gunPen: 86, color: 0x6f6a4c, armor: { front: 47, side: 25, rear: 20, turret: 47, top: 12 }, style: 'medium' as const },
+      { name: '一式炮战车', maxHp: 500, crew: 3, gunDamage: 330, gunPen: 104, color: 0x6a6548, armor: { front: 50, side: 25, rear: 12, turret: 16, top: 0 }, style: 'spg' as const },
     ]
-    const roster = team === 'enemy' ? japanese : captured ? cpc : kmt, config = roster[index % roster.length], color = config.color
-    const hitbox = this.box([2.4, .8, 4.4], [0, .72, 0], color, root), wheels: THREE.Mesh[] = []; this.box([2.7, .38, 3.5], [0, .3, 0], 0x323833, root); for (const x of [-1.28, 1.28]) { this.box([.34, .55, 4.5], [x, .42, 0], 0x242824, root); for (const z of [-1.65, -.82, 0, .82, 1.65]) { const wheel = new THREE.Mesh(new THREE.CylinderGeometry(.31, .31, .18, 12), this.mat(0x343934, .55)); wheel.rotation.z = Math.PI / 2; wheel.position.set(x, .42, z); root.add(wheel); wheels.push(wheel) } }
-    const turret = new THREE.Group(); turret.position.y = 1.28; root.add(turret); this.box([1.65, .62, 1.8], [0, .26, -.05], color, turret); const pitch = new THREE.Group(); pitch.position.y = .28; turret.add(pitch); const barrel = new THREE.Mesh(new THREE.CylinderGeometry(.075, .09, 2.8, 10), this.mat(0x292e2a, .35)); barrel.rotation.x = Math.PI / 2; barrel.position.set(0, 0, -2.15); pitch.add(barrel); const muzzle = new THREE.Object3D(); muzzle.position.set(0, 0, -3.58); pitch.add(muzzle); const coax = new THREE.Mesh(new THREE.CylinderGeometry(.035, .045, 1.05, 7), this.mat(0x242925, .4)); coax.rotation.x = Math.PI / 2; coax.position.set(.42, -.12, -1.25); pitch.add(coax); const coaxMuzzle = new THREE.Object3D(); coaxMuzzle.position.set(.42, -.12, -1.8); pitch.add(coaxMuzzle)
+    const roster = team === 'enemy' ? japanese : captured ? cpc : kmt, config = roster[index % roster.length]
+    const mesh = buildTank({ color: config.color, team, style: config.style, box: (s, p, c, parent) => this.box(s, p, c, parent), mat: (c, r) => this.mat(c, r) })
+    this.scene.add(mesh.root)
+    const { root, turret, pitch, barrel, muzzle, coaxMuzzle, hitbox, wheels } = mesh
     const tank: Tank = { root, turret, pitch, barrel, muzzle, coaxMuzzle, hitbox, wheels, team, name: config.name, armor: config.armor, gunDamage: config.gunDamage, gunPen: config.gunPen, maxHp: config.maxHp, hp: config.maxHp, tracks: 100, engine: 100, turretHealth: 100, crew: config.crew, crewCapacity: config.crew, crewMen: [], alive: true, playerDriven: false, recoilToken: 0, ramSlowUntil: 0, stalledFor: 0, reverseUntil: 0, reverseTurn: Math.random() < .5 ? -1 : 1, nextShot: 3 + Math.random() * 3, nextMg: 0, mgBurst: 0, mgPauseUntil: 0, nextSmoke: 0, lastDamageAt: -99, respawnAt: 0 }; hitbox.userData.tank = tank; this.initTankCrew(tank); this.tanks.push(tank); this.reinforceTank(tank, performance.now() / 1000)
   }
   private initTankCrew(tank: Tank) {
@@ -732,10 +715,10 @@ export class Game {
   private damageRandomTankCrew(tank: Tank, playerOwned: boolean) { const alive = tank.crewMen.filter(crew => crew.alive); if (!alive.length) return; this.damageTankCrew(tank, alive[Math.floor(Math.random() * alive.length)], 90, playerOwned) }
   private updateTankCrew(tank: Tank, time: number) { for (const crew of tank.crewMen) if (!crew.alive && time >= crew.respawnAt && tank.alive) { crew.alive = true; crew.hp = 65; if (crew.mesh) crew.mesh.visible = true } tank.crew = tank.crewMen.filter(crew => crew.alive).length }
   private transport(team: Team) {
-    const root = new THREE.Group(); this.scene.add(root); const captured = team === 'ally' && this.campaign.id === 'baituan', config = team === 'enemy' ? { name: '九四式六轮卡车', maxHp: 280 } : captured ? { name: '改装民用卡车', maxHp: 260 } : { name: 'CCKW 十轮卡车（援华）', maxHp: 320 }, color = captured ? 0x5e5a4a : team === 'ally' ? 0x4c5d50 : 0x6b6745, wheels: THREE.Mesh[] = []
-    const hitbox = this.box([2.15, .85, 4.8], [0, 1, 0], color, root); this.box([2, .95, 1.55], [0, 1.72, 1.25], color, root); this.box([2.05, .12, 2.5], [0, 1.48, -1.2], 0x3b4238, root)
-    for (const x of [-1.08, 1.08]) for (const z of [-1.55, 1.45]) { const wheel = new THREE.Mesh(new THREE.CylinderGeometry(.43, .43, .26, 12), this.mat(0x202320, .7)); wheel.rotation.z = Math.PI / 2; wheel.position.set(x, .55, z); root.add(wheel); wheels.push(wheel) }
-    for (const x of [-.72, .72]) this.box([.12, .62, 2.6], [x, 1.77, -1.18], 0x31382f, root)
+    const captured = team === 'ally' && this.campaign.id === 'baituan', config = team === 'enemy' ? { name: '九四式六轮卡车', maxHp: 280 } : captured ? { name: '改装民用卡车', maxHp: 260 } : { name: 'CCKW 十轮卡车（援华）', maxHp: 320 }, color = captured ? 0x5e5a4a : team === 'ally' ? 0x4c5d50 : 0x6b6745
+    const mesh = buildTransport({ color, team, captured, box: (s, p, c, parent) => this.box(s, p, c, parent), mat: (c, r) => this.mat(c, r) })
+    this.scene.add(mesh.root)
+    const { root, hitbox, wheels } = mesh
     const transport: Transport = { root, hitbox, wheels, team, name: config.name, maxHp: config.maxHp, hp: config.maxHp, alive: true, playerDriven: false, mission: 'pickup', waitUntil: 0, nextDrop: 0, stalledFor: 0, reverseUntil: 0, reverseTurn: Math.random() < .5 ? -1 : 1, nextSmoke: 0, lastDamageAt: -99, respawnAt: 0 }; hitbox.userData.transport = transport; this.transports.push(transport); this.reinforceTransport(transport, performance.now() / 1000)
   }
   private emplacement(team: Team, kind: 'at' | 'aa', x: number, z: number) {
@@ -746,10 +729,13 @@ export class Game {
     const muzzle = new THREE.Object3D(); muzzle.position.set(0, kind === 'aa' ? .42 : .22, kind === 'aa' ? -1.95 : -2.78); yaw.add(muzzle); const emplacement: Emplacement = { root, yaw, muzzle, hitbox, team, kind, hp: kind === 'aa' ? 180 : 240, alive: true, occupied: false, operatorUntil: 0, nextShot: 2 + Math.random() * 2, respawnAt: 0 }; hitbox.userData.emplacement = emplacement; this.emplacements.push(emplacement)
   }
   private plane(team: Team) {
-    const root = new THREE.Group(); this.scene.add(root); const captured = team === 'ally' && this.campaign.id === 'baituan', index = this.planes.filter(plane => plane.team === team).length
+    const captured = team === 'ally' && this.campaign.id === 'baituan', index = this.planes.filter(plane => plane.team === team).length
     const allied = [{ name: '霍克三型战斗机', maxHp: 95, bombs: 1, color: 0x50655a }, { name: '伊-16 援华战斗机', maxHp: 140, bombs: 2, color: 0x5f6a58 }], capturedRoster = [{ name: '一式战“隼”（缴获）', maxHp: 150, bombs: 2, color: 0x6f7a6a }, { name: '九九式轻爆机（缴获）', maxHp: 140, bombs: 3, color: 0x667062 }], japanese = [{ name: '零式舰上战斗机', maxHp: 90, bombs: 1, color: 0x8a9284 }, { name: '一式战斗机“隼”', maxHp: 150, bombs: 3, color: 0x77806e }]
-    const roster = team === 'enemy' ? japanese : captured ? capturedRoster : allied, config = roster[index % roster.length], color = config.color, scale = index % 2 ? 1.1 : 1, hitbox = this.box([.7 * scale, .55, 3.6 * scale], [0, 0, 0], color, root); this.box([7.2 * scale, .1, 1.25], [0, 0, -.15], color, root); this.box([2.6 * scale, .08, .75], [0, .1, 1.45 * scale], color, root); this.box([.1, .9, .7], [0, .4, 1.45 * scale], color, root)
-    const plane: Plane = { root, hitbox, team, name: config.name, maxHp: config.maxHp, hp: config.maxHp, alive: true, playerDriven: false, abandoned: false, speed: 30, throttle: .8, angle: team === 'ally' ? 0 : Math.PI, bombs: config.bombs, maxBombs: config.bombs, nextBomb: 0, bombRearmAt: 0, stallWarned: false, nextAttack: 5 + Math.random() * 5, nextShot: 0, respawnAt: 0 }; hitbox.userData.plane = plane; this.planes.push(plane); this.reinforcePlane(plane, performance.now() / 1000)
+    const roster = team === 'enemy' ? japanese : captured ? capturedRoster : allied, config = roster[index % roster.length], scale = index % 2 ? 1.1 : 1
+    const mesh = buildPlane({ color: config.color, team, scale, box: (s, p, c, parent) => this.box(s, p, c, parent), mat: (c, r) => this.mat(c, r) })
+    this.scene.add(mesh.root)
+    const { root, hitbox, prop } = mesh
+    const plane: Plane = { root, hitbox, prop, team, name: config.name, maxHp: config.maxHp, hp: config.maxHp, alive: true, playerDriven: false, abandoned: false, speed: 30, throttle: .8, angle: team === 'ally' ? 0 : Math.PI, bombs: config.bombs, maxBombs: config.bombs, nextBomb: 0, bombRearmAt: 0, stallWarned: false, nextAttack: 5 + Math.random() * 5, nextShot: 0, respawnAt: 0 }; hitbox.userData.plane = plane; this.planes.push(plane); this.reinforcePlane(plane, performance.now() / 1000)
   }
   private input() {
     addEventListener('keydown', e => { this.keys.add(e.code); if (e.repeat) return; if (e.code === 'Space') this.jump(); if (e.code === 'KeyJ') this.toggleBrace(); if (e.code === 'Digit1') this.switchWeapon('primary'); if (e.code === 'Digit2') this.switchWeapon('sidearm'); if (e.code === 'Digit4') this.cycleGrenade(); if (e.code === 'KeyR') this.reload(); if (e.code === 'KeyG') this.beginGrenadeCook(); if (e.code === 'KeyX') this.throwSmoke(); if (e.code === 'KeyV') this.melee(); if (e.code === 'KeyH') this.heal(); if (e.code === 'KeyB') this.playerPlane ? this.dropPlaneBomb() : this.deployUtility(); if (e.code === 'Digit5') this.cycleBuild(); if (e.code === 'KeyF') { if (this.playerPlane) this.leavePlane(); else this.repairTank() } if (e.code === 'KeyE') this.interact(); if (e.code === 'KeyT') this.orderSquadMove(); if (e.code === 'KeyY') this.orderSquadFollow(); if (e.code === 'KeyC' && this.playerTank) this.tankGunnerView = !this.tankGunnerView; else if (e.code === 'KeyC' && !this.jumpHeight && !this.playerPlane && !this.playerTransport && !this.playerMortar && !this.playerEmplacement && !this.playerMG) this.stance = this.stance === 'crouch' ? 'stand' : 'crouch'; if (e.code === 'KeyZ' && !this.playerTank && !this.playerPlane && !this.playerTransport && !this.jumpHeight) this.stance = this.stance === 'prone' ? 'stand' : 'prone' }); addEventListener('keyup', e => { this.keys.delete(e.code); if (e.code === 'KeyG') this.releaseGrenadeCook() })
@@ -1275,6 +1261,7 @@ export class Game {
     const gravityEnergy = -10.5 * climb
     const drag = -(2.2 + Math.abs(stick) * 5.5) * plane.speed ** 2 / maximumSpeed ** 2
     plane.speed = THREE.MathUtils.clamp(plane.speed + (thrust + gravityEnergy + drag) * dt, 6, 52)
+    if (plane.prop) plane.prop.rotation.z += dt * (8 + plane.speed * .55)
     plane.root.position.addScaledVector(forward, plane.speed * dt)
     plane.root.position.y -= (1 - stall) * 9.5 * dt
     plane.root.position.x = THREE.MathUtils.clamp(plane.root.position.x, -105, 105)
@@ -2401,7 +2388,7 @@ export class Game {
         if (plane.root.position.y <= this.terrainHeight(plane.root.position.x, plane.root.position.z) + .7) this.damagePlane(plane, 999, false)
         continue
       }
-      plane.angle += dt * (plane.team === 'ally' ? .16 : -.16); const radius = 54, x = Math.sin(plane.angle) * radius, z = Math.cos(plane.angle) * radius, y = 17 + Math.sin(plane.angle * 2) * 2, tangentYaw = plane.angle + (plane.team === 'ally' ? -Math.PI / 2 : Math.PI / 2); plane.root.position.set(x, y, z); plane.root.rotation.y = tangentYaw; plane.root.rotation.z = plane.team === 'ally' ? -.12 : .12
+      plane.angle += dt * (plane.team === 'ally' ? .16 : -.16); const radius = 54, x = Math.sin(plane.angle) * radius, z = Math.cos(plane.angle) * radius, y = 17 + Math.sin(plane.angle * 2) * 2, tangentYaw = plane.angle + (plane.team === 'ally' ? -Math.PI / 2 : Math.PI / 2); plane.root.position.set(x, y, z); plane.root.rotation.y = tangentYaw; plane.root.rotation.z = plane.team === 'ally' ? -.12 : .12; if (plane.prop) plane.prop.rotation.z += dt * 22
       const airTarget = this.planes.filter(target => target.alive && target.team !== plane.team).sort((a, b) => plane.root.position.distanceToSquared(a.root.position) - plane.root.position.distanceToSquared(b.root.position))[0]
       if (airTarget && time >= plane.nextShot) { const distance = plane.root.position.distanceTo(airTarget.root.position), forward = new THREE.Vector3(0, 0, -1).applyEuler(plane.root.rotation), targetForward = new THREE.Vector3(0, 0, -1).applyEuler(airTarget.root.rotation), lead = airTarget.root.position.clone().addScaledVector(targetForward, THREE.MathUtils.clamp(distance / 140, 0, .85) * airTarget.speed), aim = lead.clone().sub(plane.root.position).normalize(), alignment = forward.dot(aim); if (distance < 105 && alignment > .42) { plane.nextShot = time + .42; const start = plane.root.position.clone().addScaledVector(forward, 2), end = lead.clone().add(new THREE.Vector3((Math.random() - .5) * 2.5, (Math.random() - .5) * 1.5, (Math.random() - .5) * 2.5)); for (let burst = 0; burst < 3; burst++) this.tracer(start.clone().addScaledVector(forward, burst * .22), end.clone().add(new THREE.Vector3((Math.random() - .5) * 1.4, (Math.random() - .5), (Math.random() - .5) * 1.4)), plane.team === 'ally' ? 0xffdf83 : 0xff8068); const sound = this.soundAt(start); this.audio.shot('auto', sound.volume, sound.pan); const accuracy = THREE.MathUtils.clamp(.74 - distance * .006, .18, .62) * (plane.team === 'enemy' ? this.enemyAccuracy : 1); if (Math.random() < accuracy) { const wasAlive = airTarget.alive; this.damagePlane(airTarget, 25, false); if (wasAlive && !airTarget.alive) this.events.combatKill(plane.team === 'ally' ? '中国空军' : '日本陆航', plane.team, airTarget.team === 'ally' ? '霍克三型战斗机' : '日军战斗机', airTarget.team) } } }
       if (plane.bombs && time >= plane.nextBomb) {
