@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 
 export type PooledParticle = {
-  mesh: THREE.Mesh
+  mesh: THREE.Sprite
   velocity: THREE.Vector3
   age: number
   life: number
@@ -25,7 +25,7 @@ export type PooledCasing = {
  * Each particle keeps its own material so opacity fades stay independent.
  */
 export class FxPool {
-  private readonly particleGeo = new THREE.SphereGeometry(1, 5, 4)
+  private readonly particleMap = this.createParticleMap()
   private readonly freeParticles: PooledParticle[] = []
   private readonly freeCasings: PooledCasing[] = []
   private readonly freeTracers: THREE.Line[] = []
@@ -37,17 +37,25 @@ export class FxPool {
   readonly maxCasings = 28
   readonly maxTracers = 48
 
+  private createParticleMap() {
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64
+    const context = canvas.getContext('2d')!, gradient = context.createRadialGradient(32, 32, 2, 32, 32, 31)
+    gradient.addColorStop(0, 'rgba(255,255,255,.95)'); gradient.addColorStop(.42, 'rgba(255,255,255,.72)'); gradient.addColorStop(.78, 'rgba(255,255,255,.18)'); gradient.addColorStop(1, 'rgba(255,255,255,0)')
+    context.fillStyle = gradient; context.fillRect(0, 0, 64, 64)
+    const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; return texture
+  }
+
   acquireParticle(scene: THREE.Scene, position: THREE.Vector3, velocity: THREE.Vector3, color: number, size: number, life: number, gravity: number, grow: number, opacity: number): PooledParticle {
     let item = this.freeParticles.pop()
     if (!item) {
-      const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: opacity > .8 })
-      const mesh = new THREE.Mesh(this.particleGeo, material)
+      const material = new THREE.SpriteMaterial({ map: this.particleMap, color, transparent: true, opacity, depthWrite: false })
+      const mesh = new THREE.Sprite(material)
       item = { mesh, velocity: new THREE.Vector3(), age: 0, life, gravity, grow, baseOpacity: opacity, pooled: true }
     }
-    const material = item.mesh.material as THREE.MeshBasicMaterial
+    const material = item.mesh.material as THREE.SpriteMaterial
     material.color.setHex(color)
     material.opacity = opacity
-    material.depthWrite = opacity > .8
+    material.depthWrite = false
     item.mesh.position.copy(position)
     item.mesh.scale.setScalar(Math.max(.01, size))
     item.mesh.visible = true

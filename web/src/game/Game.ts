@@ -5,6 +5,7 @@ import type { Campaign } from './campaigns'
 import { boundsForCampaign, DEFAULT_MAP_BOUNDS, type MapBounds } from './mapBounds'
 import { SpatialHash } from './SpatialHash'
 import { Pathfinder } from './Pathfinder'
+import { RecastNavigation } from './RecastNavigation'
 import { MapBuilder } from './map/builder'
 import { SkyDome } from './map/sky'
 import type { Collider, FieldStructure, Ladder, MinimapFeatures, Platform, UrbanBuilding } from './map/types'
@@ -17,15 +18,15 @@ type Team = 'ally' | 'enemy'
 type TankCrewRole = 'driver' | 'gunner' | 'commander' | 'loader'
 type TankCrew = { role: TankCrewRole; mesh?: THREE.Group; hitbox?: THREE.Mesh; hp: number; alive: boolean; respawnAt: number }
 type BotPose = 'stand' | 'crouch' | 'prone'
-type Bot = { root: THREE.Group; torso: THREE.Group; body: THREE.Mesh; head: THREE.Mesh; weapon: THREE.Group; muzzle: THREE.Mesh; team: Team; role: string; name: string; kills: number; deaths: number; objectiveScore: number; hp: number; alive: boolean; inSquad: boolean; squadTag?: THREE.Mesh; antiTank: boolean; antiTankGrenades: number; nextAidAt: number; nextRocket: number; nextMortar: number; mortarRig?: { root: THREE.Group; tube: THREE.Mesh }; mortarRigUntil: number; lastSeen?: THREE.Vector3; lastSeenUntil: number; phase: number; legs: THREE.Group[]; arms: THREE.Mesh[]; mag: number; reloadUntil: number; bandages: number; bandageUntil: number; coverTarget?: THREE.Vector3; coverUntil: number; nextCoverAt: number; reviveTarget?: Bot; reviveUntil: number; reviver?: Bot; nextShot: number; shotAt: number; nextMelee: number; meleeAt: number; nextGrenade: number; throwAt: number; grenades: number; smokes: number; smokeAt: number; suppression: number; nextWireDamage: number; reviveAt: number; respawnAt: number; deathToken: number; strafe: number; chuting: boolean; pose: BotPose; navPath?: THREE.Vector2[]; navTarget?: THREE.Vector2; navIndex?: number; navRefreshAt?: number; stuckFor?: number; vaultFrom?: THREE.Vector3; vaultTo?: THREE.Vector3; vaultStartedAt?: number; vaultUntil?: number; riding?: Transport; drivingTank?: Tank; drivingTransport?: Transport; piloting?: Plane; emplacement?: Emplacement; machineGun?: MachineGun }
+type Bot = { root: THREE.Group; torso: THREE.Group; body: THREE.Mesh; head: THREE.Mesh; weapon: THREE.Group; muzzle: THREE.Mesh; team: Team; role: string; name: string; kills: number; deaths: number; objectiveScore: number; hp: number; alive: boolean; inSquad: boolean; squadTag?: THREE.Mesh; antiTank: boolean; antiTankGrenades: number; nextAidAt: number; nextRocket: number; nextMortar: number; mortarRig?: { root: THREE.Group; tube: THREE.Mesh }; mortarRigUntil: number; lastSeen?: THREE.Vector3; lastSeenUntil: number; phase: number; legs: THREE.Group[]; arms: THREE.Mesh[]; mag: number; reloadUntil: number; bandages: number; bandageUntil: number; coverTarget?: THREE.Vector3; coverUntil: number; nextCoverAt: number; reviveTarget?: Bot; reviveUntil: number; reviver?: Bot; nextShot: number; shotAt: number; nextMelee: number; meleeAt: number; nextGrenade: number; throwAt: number; grenades: number; smokes: number; smokeAt: number; suppression: number; nextWireDamage: number; reviveAt: number; respawnAt: number; deathToken: number; strafe: number; chuting: boolean; pose: BotPose; urbanLane?: -1 | 0 | 1; navPath?: THREE.Vector2[]; navTarget?: THREE.Vector2; navIndex?: number; navRefreshAt?: number; stuckFor?: number; vaultFrom?: THREE.Vector3; vaultTo?: THREE.Vector3; vaultStartedAt?: number; vaultUntil?: number; riding?: Transport; drivingTank?: Tank; drivingTransport?: Transport; piloting?: Plane; emplacement?: Emplacement; machineGun?: MachineGun }
 type Tank = { root: THREE.Group; turret: THREE.Group; pitch: THREE.Group; barrel: THREE.Mesh; muzzle: THREE.Object3D; coaxMuzzle: THREE.Object3D; hitbox: THREE.Mesh; wheels: THREE.Mesh[]; team: Team; name: string; armor: { front: number; side: number; rear: number; turret: number; top: number }; gunDamage: number; gunPen: number; maxHp: number; hp: number; tracks: number; engine: number; turretHealth: number; crew: number; crewCapacity: number; crewMen: TankCrew[]; driver?: Bot; wreckCollider?: Collider; alive: boolean; playerDriven: boolean; recoilToken: number; ramSlowUntil: number; stalledFor: number; reverseUntil: number; reverseTurn: number; nextShot: number; nextMg: number; mgBurst: number; mgPauseUntil: number; nextSmoke: number; lastDamageAt: number; respawnAt: number; lastDamageCause?: string; lastDamageSource?: THREE.Vector3 }
-type TransportMission = 'pickup' | 'transit' | 'unload' | 'return'
+type TransportMission = 'pickup' | 'transit' | 'unload' | 'hold'
 type Transport = { root: THREE.Group; hitbox: THREE.Mesh; wheels: THREE.Mesh[]; team: Team; name: string; maxHp: number; hp: number; alive: boolean; playerDriven: boolean; driver?: Bot; wreckCollider?: Collider; mission: TransportMission; waitUntil: number; nextDrop: number; stalledFor: number; reverseUntil: number; reverseTurn: number; nextSmoke: number; lastDamageAt: number; respawnAt: number }
 type Emplacement = { root: THREE.Group; yaw: THREE.Group; muzzle: THREE.Object3D; hitbox: THREE.Mesh; team: Team; kind: 'at' | 'aa'; hp: number; alive: boolean; occupied: boolean; operator?: Bot; operatorUntil: number; nextShot: number; respawnAt: number }
 type Plane = { root: THREE.Group; hitbox: THREE.Mesh; prop?: THREE.Group; team: Team; name: string; maxHp: number; hp: number; alive: boolean; playerDriven: boolean; abandoned: boolean; pilot?: Bot; speed: number; throttle: number; angle: number; bombs: number; maxBombs: number; nextBomb: number; bombRearmAt: number; stallWarned: boolean; nextAttack: number; nextShot: number; respawnAt: number; lastDamageCause?: string; lastDamageSource?: THREE.Vector3 }
 type BailedPilot = { root: THREE.Group; chute: THREE.Group; team: Team; velocity: THREE.Vector3; landedAt: number; bot?: Bot }
 type PlaneWreck = { root: THREE.Group; velocity: THREE.Vector3; rollVelocity: number; state: 'fall' | 'rest'; smokeAt: number; restUntil: number; team: Team; playerOwned: boolean; name: string; collider?: Collider }
-type Particle = { mesh: THREE.Mesh; velocity: THREE.Vector3; age: number; life: number; gravity: number; grow: number; baseOpacity?: number; pooled?: boolean }
+type Particle = { mesh: THREE.Mesh | THREE.Sprite; velocity: THREE.Vector3; age: number; life: number; gravity: number; grow: number; baseOpacity?: number; pooled?: boolean }
 type Casing = { mesh: THREE.Mesh; velocity: THREE.Vector3; angular: THREE.Vector3; age: number; bounced: boolean; pooled?: boolean }
 type DeathHeat = { position: THREE.Vector3; team: Team; at: number }
 type SmokeCloud = { root: THREE.Group; position: THREE.Vector3; bornAt: number; expiresAt: number }
@@ -42,7 +43,7 @@ type Fortification = { kind: BuildKind; center: THREE.Vector3; team: Team; meshe
 type ConstructionRise = { object: THREE.Object3D; targetY: number; startedAt: number; duration: number }
 type CorpseMotion = { bot: Bot; velocity: THREE.Vector3; angular: THREE.Vector3; floor: number; settled: boolean }
 type Mortar = { root: THREE.Group; tube: THREE.Mesh; position: THREE.Vector3; ammo: number; occupied: boolean }
-type MachineGun = { root: THREE.Group; yaw: THREE.Group; pitch: THREE.Group; muzzle: THREE.Object3D; position: THREE.Vector3; ammo: number; heat: number; occupied: boolean; deployable: boolean; operator?: Bot; operatorUntil: number; nextShot: number }
+type MachineGun = { root: THREE.Group; yaw: THREE.Group; pitch: THREE.Group; muzzle: THREE.Object3D; position: THREE.Vector3; heat: number; occupied: boolean; deployable: boolean; operator?: Bot; operatorUntil: number; nextShot: number }
 type Depot = { id: string; root: THREE.Group; hitbox: THREE.Mesh; position: THREE.Vector3; hp: number; destroyed: boolean }
 export type TacticalSnapshot = { player: [number, number, number]; infantry: [number, number, Team][]; tanks: [number, number, Team][]; flags: [string, number, number, Team | null, boolean][]; depots: [string, number, number, boolean][] }
 export type ScoreRow = { name: string; role?: string; kills: number; deaths: number; score: number; player?: boolean; alive: boolean }
@@ -62,6 +63,9 @@ export class Game {
   private colliderHash = new SpatialHash(4)
   private vehicleHash = new SpatialHash(6)
   private pathfinder = new Pathfinder()
+  private recastNavigation = new RecastNavigation()
+  private vehiclePathfinder = new Pathfinder()
+  private vehicleNavigation = new Map<THREE.Object3D, { path: THREE.Vector2[]; index: number; target: THREE.Vector2; refreshAt: number }>()
   private combatTargets = new CombatTargets()
   private fxPool = new FxPool()
   private collidersDirty = true
@@ -113,6 +117,10 @@ export class Game {
   private objectives: Objective[] = []
   private depots: Depot[] = []
   private assaultIndex = 0
+  private operationPhase = 0
+  private operationTransitionUntil = 0
+  private operationOpeningUntil = 0
+  private operationOpeningBarrage = false
   private colliders: Collider[] = []
   private vehicleColliders: Collider[] = []
   private coverMeshes: THREE.Mesh[] = []
@@ -152,7 +160,7 @@ export class Game {
   private lightningAt = 0
   private stormFlash = 0
   private ammoCrates: THREE.Vector3[] = []
-  private squadMode: 'follow' | 'move' = 'follow'
+  private squadMode: 'autonomous' | 'move' = 'autonomous'
   private squadTarget = new THREE.Vector3()
   private squadMarker = new THREE.Mesh(new THREE.ConeGeometry(.35, .75, 4), new THREE.MeshBasicMaterial({ color: 0xffd75a, depthTest: false }))
   private tickets: [number, number] = [120, 120]
@@ -274,6 +282,7 @@ export class Game {
     this.colliderHash.rebuild(this.colliders)
     this.vehicleHash.rebuild(this.vehicleColliders)
     this.pathfinder.rebuild(this.colliderHash, this.mapBounds)
+    this.vehiclePathfinder.rebuild(this.vehicleHash, this.mapBounds, 3, 1.7)
     this.collidersDirty = false
     this.lastColliderCount = this.colliders.length
     this.lastVehicleColliderCount = this.vehicleColliders.length
@@ -296,7 +305,8 @@ export class Game {
   }
   private captureStaticCover() {
     this.staticCoverSet = new Set(this.coverMeshes.filter(mesh => !mesh.userData.urbanBuilding && !mesh.userData.structure))
-    this.staticCover = buildStaticCover([...this.staticCoverSet])
+    const meshes = [...this.staticCoverSet]; if (this.mapBuilder.ground) meshes.push(this.mapBuilder.ground)
+    this.staticCover = buildStaticCover(meshes)
     this.ray.firstHitOnly = true
   }
   private dynamicCover() { const scratch = this.dynamicCoverScratch; scratch.length = 0; for (const mesh of this.coverMeshes) if (!this.staticCoverSet.has(mesh)) scratch.push(mesh); return scratch }
@@ -322,16 +332,51 @@ export class Game {
     this.renderer.toneMappingExposure = .95
     ;(window as unknown as { exportBattlefield1937Log: () => void }).exportBattlefield1937Log = () => { this.flushCombatLog(true); const data = localStorage.getItem('battlefield1937_combat_log') ?? '[]', link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([data], { type: 'application/json' })); link.download = `战地1937-战斗日志-${new Date().toISOString().replace(/[:.]/g, '-')}.json`; link.click(); URL.revokeObjectURL(link.href) }
     const atmosphere = { delta: [0x737c79, 0x858d89], ruin: [0x77756e, 0x85837b], canal: [0x8b8a7e, 0x99988b], green: [0x778477, 0x899489], loess: [0x9a8769, 0xa49172], jungle: [0x536b5b, 0x647766], alpine: [0x7c8987, 0x929c99] }[campaign.theme], fogBase = { delta: .018, ruin: .02, canal: .016, green: .01, loess: .01, jungle: .02, alpine: .012 }[campaign.theme]; this.scene.fog = new THREE.FogExp2(atmosphere[1], fogBase + (campaign.weather.includes('雨') ? .004 : 0) + (campaign.weather === '雷雨' ? .002 : 0)); this.sky = new SkyDome(this.scene, atmosphere[0], atmosphere[1], campaign.theme, campaign.weather)
-    this.camera.position.set(0, 1.72, Math.min(47, this.mapBounds.halfDepth - 11))
+    this.camera.position.set(0, 1.72, this.mapBounds.halfDepth - 11)
     this.mapBuilder = new MapBuilder({ scene: this.scene, campaign: this.campaign, renderer: this.renderer, mapBounds: this.mapBounds, textureCache: this.textureCache, materialCache: this.materialCache, colliders: this.colliders, vehicleColliders: this.vehicleColliders, coverMeshes: this.coverMeshes, ladders: this.ladders, platforms: this.platforms, urbanBuildings: this.urbanBuildings, fieldStructures: this.fieldStructures, markCollidersDirty: () => this.markCollidersDirty() })
-    this.lights(); this.mapBuilder.build(); this.captureStaticCover(); this.initWeather(); for (const flag of campaign.flags) this.objective(flag.id, flag.x, flag.z, flag.radius); if (campaign.rule === 'demolition') for (const flag of campaign.flags) this.depot(flag.id, flag.x, flag.z); this.resetModeState(); this.fixedMachineGuns(); this.supply(4, 45); this.squadMarker.visible = false; this.squadMarker.renderOrder = 5; this.scene.add(this.squadMarker); this.mortarMarker.rotation.x = -Math.PI / 2; this.mortarMarker.visible = false; this.mortarMarker.renderOrder = 6; this.scene.add(this.mortarMarker); this.gun(); this.forces(); this.tank('ally'); this.tank('enemy'); this.transport('ally'); this.transport('enemy'); this.emplacement('ally', 'at', -5.5, 27); this.emplacement('enemy', 'at', 5.5, -27); this.emplacement('ally', 'aa', 6, 43); this.emplacement('enemy', 'aa', -6, -43); this.plane('ally'); this.plane('enemy'); this.input(); this.resize(); this.rebuildSpatialIndexes(); this.refreshCombatTargets(); this.loop()
+    const rear = this.mapBounds.halfDepth - 14, supportLine = this.mapBounds.halfDepth * .48, airDefenseLine = this.mapBounds.halfDepth * .72
+    this.lights(); this.mapBuilder.build(); this.captureStaticCover(); this.initWeather(); for (const flag of campaign.flags) this.objective(flag.id, flag.x, flag.z, flag.radius); if (campaign.rule === 'demolition') for (const flag of campaign.flags) this.depot(flag.id, flag.x, flag.z); this.resetModeState(); this.fixedMachineGuns(); this.supply(4, rear); this.squadMarker.visible = false; this.squadMarker.renderOrder = 5; this.scene.add(this.squadMarker); this.mortarMarker.rotation.x = -Math.PI / 2; this.mortarMarker.visible = false; this.mortarMarker.renderOrder = 6; this.scene.add(this.mortarMarker); this.gun(); this.forces(); this.tank('ally'); this.tank('enemy'); this.transport('ally'); this.transport('enemy'); this.emplacement('ally', 'at', -5.5, supportLine); this.emplacement('enemy', 'at', 5.5, -supportLine); this.emplacement('ally', 'aa', 6, airDefenseLine); this.emplacement('enemy', 'aa', -6, -airDefenseLine); this.plane('ally'); this.plane('enemy'); this.input(); this.resize(); this.rebuildSpatialIndexes(); this.initializeRecastNavigation(); this.refreshCombatTargets(); this.loop()
     this.expandVehicleForces()
+    this.configureSonghuForces()
     addEventListener('resize', () => this.resize())
     addEventListener('beforeunload', () => this.flushCombatLog(true))
   }
 
+  private initializeRecastNavigation() {
+    const ground = this.mapBuilder.ground
+    if (!ground) return
+    void this.recastNavigation.build(ground, [...this.colliders], (x, z) => this.terrainHeight(x, z))
+      .then(() => console.info('[战地1937] Detour tiled NavMesh / Crowd 已启用'))
+      .catch(error => console.warn('[战地1937] Detour 初始化失败，继续使用网格寻路', error))
+  }
+
   private expandVehicleForces() {
     for (const team of ['ally', 'enemy'] as const) { while (this.tanks.filter(tank => tank.team === team).length < 3) this.tank(team); while (this.planes.filter(plane => plane.team === team).length < 2) this.plane(team) }
+  }
+  private configureSonghuForces() {
+    if (!this.isSonghuOperation()) return
+    for (const team of ['ally', 'enemy'] as const) {
+      this.tanks.filter(tank => tank.team === team).forEach((tank, index) => { if (team === 'enemy' && index === 0) return; tank.alive = false; tank.root.visible = false; tank.respawnAt = Infinity })
+      this.planes.filter(plane => plane.team === team).forEach(plane => { this.releasePlanePilot(plane); plane.alive = false; plane.root.visible = false; plane.respawnAt = Infinity })
+    }
+  }
+  private stageSonghuAttackers() {
+    if (!this.isSonghuOperation()) return
+    const baseZ = -this.mapBounds.halfDepth + 11, attackers = this.bots.filter(bot => bot.alive && bot.team === 'enemy' && !bot.riding && !bot.drivingTank && !bot.drivingTransport && !bot.piloting && !bot.chuting)
+    attackers.forEach((bot, index) => {
+      const lane = index % 6, row = Math.floor(index / 6), position = this.openPlacement((lane - 2.5) * 6, baseZ + 4 - row * 4, .45)
+      bot.root.position.copy(position); bot.root.rotation.set(0, 0, 0); bot.coverTarget = undefined; bot.lastSeen = undefined; bot.lastSeenUntil = 0
+    })
+  }
+  private deploySonghuReinforcements(now: number) {
+    if (this.operationPhase === 1) {
+      const alliedTank = this.tanks.find(tank => tank.team === 'ally' && !tank.alive && tank.respawnAt === Infinity)
+      const enemyTank = this.tanks.find((tank, index) => tank.team === 'enemy' && index > 0 && !tank.alive && tank.respawnAt === Infinity)
+      if (alliedTank) this.reinforceTank(alliedTank, now)
+      if (enemyTank) this.reinforceTank(enemyTank, now)
+      return
+    }
+    for (const team of ['ally', 'enemy'] as const) { const plane = this.planes.find(item => item.team === team && !item.alive && item.respawnAt === Infinity); if (plane) this.reinforcePlane(plane, now) }
   }
   private fixedMachineGuns() {
     this.campaign.flags.forEach((flag, index) => { const position = this.openPlacement(flag.x + (index % 2 ? -6 : 6), flag.z + (index % 3 - 1) * 3, 1.35), gun = this.createMachineGun(position, index % 2 ? Math.PI : 0, false); gun.root.position.y = position.y + 1; this.machineGuns.push(gun) })
@@ -346,8 +391,9 @@ export class Game {
     for (const team of ['ally', 'enemy'] as const) {
       const teamBots = this.bots.filter(bot => bot.team === team)
       for (const bot of teamBots.slice(size[0])) { this.disposeGroup(bot.root); this.bots.splice(this.bots.indexOf(bot), 1) }
-      for (let index = teamBots.length; index < size[0]; index++) this.bot(team, -7 + index % 6 * 2.8, (team === 'ally' ? 39 : -34) + (team === 'ally' ? 1 : -1) * Math.floor(index / 6) * 3.5)
+      for (let index = teamBots.length; index < size[0]; index++) { const spawn = this.reinforcementSpawn(team, index); this.bot(team, spawn.x, spawn.z) }
     }
+    this.stageSonghuAttackers()
     const difficulty = { recruit: [.72, 1.24, .78], veteran: [1, 1, 1], elite: [1.22, .82, 1.18] }[options.difficulty]
     ;[this.enemyAccuracy, this.enemyFireRate, this.enemyDamage] = difficulty
   }
@@ -366,18 +412,21 @@ export class Game {
   unlockAudio() { this.audio.unlock({ rain: this.campaign.weather.includes('雨'), birds: !['ruin', 'alpine'].includes(this.campaign.theme) }) }
   respawn(loadoutIndex = 0, spawnId = 'base') {
     if (this.matchOver || !this.dead || this.tickets[0] <= 0) return
+    const initialOperationDeploy = this.isSonghuOperation() && !this.operationOpeningUntil && !this.operationOpeningBarrage
+    if (initialOperationDeploy) { this.stageSonghuAttackers(); this.operationOpeningUntil = performance.now() / 1000 + 15 }
     this.clearGrenadeCook(); this.clearBandage(); this.clearSupplyAction(); this.clearBuildAction()
     if (this.playerTransport) { this.playerTransport.playerDriven = false; this.playerTransport = undefined; this.playerTransportPassenger = false; this.playerTransportSeat = -1 }
     if (this.playerPlane) { this.playerPlane.playerDriven = false; this.playerPlane = undefined }
     this.parachuting = false; if (this.parachute) { this.disposeGroup(this.parachute); this.parachute = undefined }
     if (this.playerEmplacement) this.playerEmplacement.occupied = false
     this.deathSceneToken++; this.playerTank = undefined; this.playerMortar = undefined; this.playerEmplacement = undefined; this.playerMG = undefined; this.playerLadder = undefined; this.groundLevel = 0; this.mortarMarker.visible = false; this.weapon.visible = true; this.stance = 'stand'; this.stamina = 1; this.jumpHeight = 0; this.jumpVelocity = 0; this.landingKick = 0; this.braced = false; this.canBrace = false; this.holdingBreath = false; this.breathExhaustedUntil = 0; this.selectedLoadout = this.battleLoadouts[loadoutIndex] ?? this.battleLoadouts[0]; this.weaponSlot = 'primary'; this.primaryAmmo = [this.selectedLoadout.magazine, this.selectedLoadout.reserve]; this.sidearmAmmo = [sidearm.magazine, sidearm.reserve]; this.dead = false; this.active = true; this.hp = 100; this.lastDamageAt = -99; [this.mag, this.reserve] = this.primaryAmmo; this.grenades = this.selectedLoadout.grenades; this.antiTankGrenades = this.selectedLoadout.antiTankGrenades ?? 0; this.grenadeMode = 'frag'; this.events.grenadeMode(this.grenadeMode, this.antiTankGrenades); this.smokeGrenades = 1; this.suppression = 0; this.events.suppression(0); this.aid = this.selectedLoadout.aid; this.medkitAvailable = this.selectedLoadout.id === 'medic'; this.buildCharges = this.selectedLoadout.id === 'engineer' ? 6 : 0; this.buildKind = 'sandbag'; this.mortarAmmo = this.selectedLoadout.id === 'mortar' ? this.mortar?.ammo ?? 16 : 0; this.loading = false; this.aiming = false; this.buildWeapon()
-    const requested = this.objectives.find(o => o.id === spawnId && o.owner === 'ally' && this.spawnIsSafe(o.position, 'ally'))
-    const safe = requested ?? this.objectives.filter(o => o.owner === 'ally' && this.spawnIsSafe(o.position, 'ally')).sort((a, b) => b.position.z - a.position.z)[0]
-    const spawnX = safe?.position.x ?? 0, spawnZ = (safe?.position.z ?? 42) + 6; this.groundLevel = this.terrainHeight(spawnX, spawnZ); this.camera.position.set(spawnX, this.groundLevel + 1.72, spawnZ); this.pitch = -.04; this.recoil = 0; this.resetCameraView()
+    const requested = this.objectives.find(o => o.id === spawnId && this.objectiveDeployable(o, 'ally'))
+    const spawnObjectives = this.isSonghuOperation() ? this.activeAssaultObjectives() : this.objectives
+    const safe = requested ?? spawnObjectives.filter(o => this.objectiveDeployable(o, 'ally')).sort((a, b) => b.position.z - a.position.z)[0]
+    const headquartersDeploy = this.isSonghuOperation() && spawnId === 'base' && !initialOperationDeploy, deployment = headquartersDeploy ? this.randomDeploymentPosition(new THREE.Vector3(0, 0, this.mapBounds.halfDepth - 16), 7) : safe ? this.randomDeploymentPosition(safe.position, safe.radius) : this.randomDeploymentPosition(new THREE.Vector3(0, 0, this.mapBounds.halfDepth - 16), 7); this.groundLevel = this.terrainHeight(deployment.x, deployment.z); this.camera.position.set(deployment.x, this.groundLevel + 1.72, deployment.z); this.pitch = -.04; this.recoil = 0; this.resetCameraView()
     this.events.health(this.hp, false); this.events.vehicle(false, 0, false); this.events.tankSight(false, false, false); this.events.emplacementLead(); this.events.movement(this.stamina, this.stance); this.events.loadout(this.activeLoadout()); this.events.ammo(this.mag, this.reserve, false); this.events.equipment(this.grenades, this.aid, this.medkitAvailable, this.buildCharges, this.buildLabel(), this.mortarAmmo, Boolean(this.mortar), '')
-    if (spawnId === 'vehicle-tank') { const tank = this.tanks.find(item => item.team === 'ally' && item.alive && !item.playerDriven); if (tank) this.enterTank(tank) }
-    if (spawnId === 'vehicle-transport') { const transport = this.transports.find(item => item.team === 'ally' && item.alive && !item.playerDriven); if (transport) this.enterTransport(transport) }
+    if (spawnId === 'vehicle-tank') { const tank = this.tanks.find(item => item.team === 'ally' && item.alive && !item.playerDriven && this.vehicleDeployable(item.root, item.team, item.lastDamageAt)); if (tank) this.enterTank(tank) }
+    if (spawnId === 'vehicle-transport') { const transport = this.transports.find(item => item.team === 'ally' && item.alive && !item.playerDriven && this.vehicleDeployable(item.root, item.team, item.lastDamageAt)); if (transport) this.enterTransport(transport) }
     if (spawnId === 'vehicle-plane') { const plane = this.planes.find(item => item.team === 'ally' && item.alive && !item.playerDriven); if (plane) this.enterPlane(plane) }
     this.canvas.requestPointerLock()
   }
@@ -400,9 +449,9 @@ export class Game {
     for (const building of this.urbanBuildings) { building.hp = 900; building.destroyed = false; building.body.position.y = 3.2 + (building.height - 3.2) / 2; building.body.scale.set(1, 1, 1); building.body.rotation.set(0, 0, 0); building.details.forEach(detail => { detail.visible = true; if (detail instanceof THREE.Mesh && !this.coverMeshes.includes(detail)) this.coverMeshes.push(detail) }); if (!this.coverMeshes.includes(building.body)) this.coverMeshes.push(building.body); for (const collider of building.colliders) { if (!this.colliders.includes(collider)) this.colliders.push(collider); if (!this.vehicleColliders.includes(collider)) this.vehicleColliders.push(collider) } if (building.ladder && !this.ladders.includes(building.ladder)) this.ladders.push(building.ladder); if (building.platform && !this.platforms.includes(building.platform)) this.platforms.push(building.platform) }
     this.constructionRisers.length = 0; for (const fortification of this.fortifications) { for (const mesh of fortification.meshes) { this.scene.remove(mesh); mesh.geometry.dispose(); const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]; materials.forEach(material => this.disposeMaterial(material)); const index = this.coverMeshes.indexOf(mesh); if (index >= 0) this.coverMeshes.splice(index, 1) } for (const collider of fortification.colliders) { const index = this.colliders.indexOf(collider); if (index >= 0) this.colliders.splice(index, 1) } } this.fortifications.length = 0
     if (this.mortar) { this.disposeGroup(this.mortar.root); this.mortar = undefined; this.playerMortar = undefined; this.mortarMarker.visible = false }
-    for (let index = this.machineGuns.length - 1; index >= 0; index--) { const machineGun = this.machineGuns[index]; if (machineGun.deployable) { this.disposeGroup(machineGun.root); this.machineGuns.splice(index, 1) } else { if (machineGun.operator) machineGun.operator.machineGun = undefined; machineGun.operator = undefined; machineGun.operatorUntil = 0; machineGun.occupied = false; machineGun.ammo = 250; machineGun.heat = 0; machineGun.nextShot = 0 } } this.playerMG = undefined
+    for (let index = this.machineGuns.length - 1; index >= 0; index--) { const machineGun = this.machineGuns[index]; if (machineGun.deployable) { this.disposeGroup(machineGun.root); this.machineGuns.splice(index, 1) } else { if (machineGun.operator) machineGun.operator.machineGun = undefined; machineGun.operator = undefined; machineGun.operatorUntil = 0; machineGun.occupied = false; machineGun.heat = 0; machineGun.nextShot = 0 } } this.playerMG = undefined
     this.resetModeState()
-    const time = performance.now() / 1000; this.reinforcementWaveAt = { ally: time + 8, enemy: time + 8 }; for (const bot of this.bots) { bot.kills = 0; bot.deaths = 0; bot.objectiveScore = 0; this.reinforce(bot, time) } for (const tank of this.tanks) this.reinforceTank(tank, time); for (const transport of this.transports) this.reinforceTransport(transport, time); for (const plane of this.planes) this.reinforcePlane(plane, time); for (const gun of this.emplacements) { gun.alive = true; gun.occupied = false; gun.hp = gun.kind === 'aa' ? 180 : 240; gun.root.rotation.z = 0; gun.nextShot = time + 2 }
+    const time = performance.now() / 1000; this.reinforcementWaveAt = { ally: time + 8, enemy: time + 8 }; for (const tank of this.tanks) this.reinforceTank(tank, time); for (const transport of this.transports) this.reinforceTransport(transport, time); for (const bot of this.bots) { bot.kills = 0; bot.deaths = 0; bot.objectiveScore = 0; this.reinforce(bot, time) } for (const plane of this.planes) this.reinforcePlane(plane, time); this.configureSonghuForces(); for (const gun of this.emplacements) { gun.alive = true; gun.occupied = false; gun.hp = gun.kind === 'aa' ? 180 : 240; gun.root.rotation.z = 0; gun.nextShot = time + 2 }
     this.playerEmplacement = undefined
     this.markCollidersDirty()
     this.rebuildSpatialIndexes()
@@ -447,9 +496,20 @@ export class Game {
     if (tank && now < tank.ramSlowUntil) { dx *= .58; dz *= .58 }
     const yaw = vehicle?.root.rotation.y ?? 0, localHalfX = 1.15, localHalfZ = transport ? 2.45 : 1.8, halfX = Math.abs(Math.cos(yaw)) * localHalfX + Math.abs(Math.sin(yaw)) * localHalfZ, halfZ = Math.abs(Math.sin(yaw)) * localHalfX + Math.abs(Math.cos(yaw)) * localHalfZ
     const overlaps = (box: Collider, x: number, z: number) => x + halfX > box.minX && x - halfX < box.maxX && z + halfZ > box.minZ && z - halfZ < box.maxZ
+    const vehicleOverlap = (other: Tank | Transport, x: number, z: number) => {
+      const otherYaw = other.root.rotation.y, otherHalfZ = 'tracks' in other ? 1.8 : 2.45
+      const otherHalfX = Math.abs(Math.cos(otherYaw)) * 1.15 + Math.abs(Math.sin(otherYaw)) * otherHalfZ
+      const otherHalfDepth = Math.abs(Math.sin(otherYaw)) * 1.15 + Math.abs(Math.cos(otherYaw)) * otherHalfZ
+      return Math.min(x + halfX, other.root.position.x + otherHalfX) - Math.max(x - halfX, other.root.position.x - otherHalfX) > 0
+        && Math.min(z + halfZ, other.root.position.z + otherHalfDepth) - Math.max(z - halfZ, other.root.position.z - otherHalfDepth) > 0
+    }
     if (tank && Math.hypot(dx, dz) > .028) {
       const rammed = this.fieldStructures.find(structure => !structure.destroyed && overlaps(structure.collider, position.x + dx, position.z + dz))
       if (rammed) { this.damageStructure(rammed, 999); tank.ramSlowUntil = now + .65; tank.hp = Math.max(1, tank.hp - 6); tank.tracks = Math.max(0, tank.tracks - 4); this.status = `${tank.name}撞塌建筑`; this.statusUntil = now + 1.5; const sound = this.soundAt(rammed.root.position); this.audio.explosion(sound.volume * .55, sound.pan) }
+    }
+    if (vehicle && Math.hypot(dx, dz) > .025) {
+      const crushable = this.coverMeshes.find(mesh => mesh.userData.crushable && mesh.userData.collider && overlaps(mesh.userData.collider as Collider, position.x + dx, position.z + dz))
+      if (crushable && (tank || Math.random() < .72)) { const collider = crushable.userData.collider as Collider; this.scene.remove(crushable); crushable.geometry.dispose(); this.coverMeshes.splice(this.coverMeshes.indexOf(crushable), 1); const infantryIndex = this.colliders.indexOf(collider), vehicleIndex = this.vehicleColliders.indexOf(collider); if (infantryIndex >= 0) this.colliders.splice(infantryIndex, 1); if (vehicleIndex >= 0) this.vehicleColliders.splice(vehicleIndex, 1); this.markCollidersDirty(); for (let dust = 0; dust < 3; dust++) this.particle(crushable.position, new THREE.Vector3((Math.random() - .5) * 2, .4 + Math.random(), (Math.random() - .5) * 2), 0x6b604e, .08, .45, 2) }
     }
     this.syncColliders()
     const blocked = (x: number, z: number) => {
@@ -459,6 +519,12 @@ export class Game {
         if (item.kind !== 'hedgehog') continue
         for (const box of item.colliders) if (overlaps(box, x, z)) return true
       }
+      for (const other of [...this.tanks, ...this.transports]) {
+        if (!other.alive || other === vehicle || !vehicleOverlap(other, x, z)) continue
+        if (!vehicleOverlap(other, position.x, position.z)) return true
+        const currentDistance = (position.x - other.root.position.x) ** 2 + (position.z - other.root.position.z) ** 2, nextDistance = (x - other.root.position.x) ** 2 + (z - other.root.position.z) ** 2
+        if (nextDistance <= currentDistance) return true
+      }
       return false
     }
     const width = this.battlefieldHalfWidth() - Math.max(halfX, 1.8), depth = this.battlefieldHalfDepth() + 1 - Math.max(halfZ, 1.8), distance = Math.hypot(dx, dz), slices = Math.max(1, Math.ceil(distance / .12)), stepX = dx / slices, stepZ = dz / slices
@@ -467,16 +533,45 @@ export class Game {
     position.y = this.terrainHeight(position.x, position.z)
     const movement = this.tmpV3A.set(position.x - beforeX, position.y - beforeY, position.z - beforeZ)
     if (tank) { const tankForward = new THREE.Vector3(0, 0, -1).applyQuaternion(tank.root.quaternion), roll = movement.dot(tankForward) / .31; for (const wheel of tank.wheels) wheel.rotateY(roll); this.resolveTankInteractions(tank, movement) }
+    else if (transport) this.resolveTransportInteractions(transport, movement)
     return movement.lengthSq() > .000001
   }
-  private moveVehicleToward(position: THREE.Vector3, target: THREE.Vector3, step: number, side: number) { const direction = target.clone().sub(position).setY(0); if (!direction.lengthSq()) return true; direction.normalize(); if (this.moveTankWithCollision(position, direction.x * step, direction.z * step)) return true; const tangent = new THREE.Vector3(-direction.z * side, 0, direction.x * side); if (this.moveTankWithCollision(position, tangent.x * step, tangent.z * step)) return true; return this.moveTankWithCollision(position, -tangent.x * step, -tangent.z * step) }
+  private moveVehicleToward(position: THREE.Vector3, target: THREE.Vector3, step: number, side: number) {
+    const vehicle = [...this.tanks, ...this.transports].find(candidate => candidate.alive && candidate.root.position === position), direction = vehicle ? this.vehicleNavDirection(vehicle.root, target) : target.clone().sub(position).setY(0), before = position.distanceToSquared(target); if (!direction.lengthSq()) return true
+    direction.normalize(); if (vehicle) vehicle.root.rotation.y = Math.atan2(direction.x, direction.z) + ('tracks' in vehicle ? Math.PI : 0); this.moveTankWithCollision(position, direction.x * step, direction.z * step)
+    if (before - position.distanceToSquared(target) > Math.max(.002, step * .08)) return true
+    const tangent = new THREE.Vector3(-direction.z * side, 0, direction.x * side), bypass = direction.clone().addScaledVector(tangent, 1.35).normalize()
+    this.moveTankWithCollision(position, bypass.x * step, bypass.z * step)
+    if (before - position.distanceToSquared(target) > Math.max(.002, step * .04)) return true
+    const alternate = direction.clone().addScaledVector(tangent, -1.35).normalize()
+    this.moveTankWithCollision(position, alternate.x * step, alternate.z * step)
+    return before - position.distanceToSquared(target) > Math.max(.002, step * .025)
+  }
+  private vehicleLineClear(ax: number, az: number, bx: number, bz: number) {
+    this.syncColliders(); const distance = Math.hypot(bx - ax, bz - az), steps = Math.ceil(distance / .8)
+    for (let index = 1; index < steps; index++) { const t = index / steps; if (this.vehicleHash.blocked(THREE.MathUtils.lerp(ax, bx, t), THREE.MathUtils.lerp(az, bz, t), 1.7)) return false }
+    return true
+  }
+  private vehicleNavDirection(root: THREE.Object3D, target: THREE.Vector3) {
+    const now = performance.now() / 1000, from = new THREE.Vector2(root.position.x, root.position.z), destination = new THREE.Vector2(target.x, target.z)
+    if (from.distanceToSquared(destination) < 8 ** 2 && this.vehicleLineClear(from.x, from.y, destination.x, destination.y)) { this.vehicleNavigation.delete(root); return target.clone().sub(root.position).setY(0) }
+    let navigation = this.vehicleNavigation.get(root)
+    if (!navigation || navigation.target.distanceToSquared(destination) > 6 ** 2 || now >= navigation.refreshAt || navigation.index >= navigation.path.length) {
+      const path = this.vehiclePathfinder.findPath(from.x, from.y, destination.x, destination.y, (ax, az, bx, bz) => this.vehicleLineClear(ax, az, bx, bz)).map(point => new THREE.Vector2(point.x, point.z))
+      navigation = { path, index: 0, target: destination, refreshAt: now + 2.2 }; this.vehicleNavigation.set(root, navigation)
+    }
+    let waypoint = navigation.path[navigation.index]
+    while (waypoint && from.distanceToSquared(waypoint) < 2.4 ** 2 && navigation.index < navigation.path.length - 1) waypoint = navigation.path[++navigation.index]
+    return waypoint ? new THREE.Vector3(waypoint.x - root.position.x, 0, waypoint.y - root.position.z) : target.clone().sub(root.position).setY(0)
+  }
   private resolveTankInteractions(tank: Tank, movement: THREE.Vector3) {
-    const moving = movement.lengthSq() > .00035, forward = movement.lengthSq() ? movement.clone().normalize() : new THREE.Vector3(0, 0, -1).applyQuaternion(tank.root.quaternion)
+    const moving = movement.lengthSq() > .00035, forward = movement.lengthSq() ? movement.clone().normalize() : new THREE.Vector3(0, 0, -1).applyQuaternion(tank.root.quaternion), sweep = new THREE.Line3(tank.root.position.clone().sub(movement).setY(0), tank.root.position.clone().setY(0)), closest = new THREE.Vector3()
     for (const bot of this.bots) {
       if (!bot.alive || bot.riding) continue
       const offset = bot.root.position.clone().sub(tank.root.position), local = offset.clone().applyQuaternion(tank.root.quaternion.clone().invert())
-      if (Math.abs(local.x) > 1.55 || Math.abs(local.z) > 2.6) continue
-      const frontal = moving && forward.dot(offset.setY(0).normalize()) > .15
+      sweep.closestPointToPoint(bot.root.position.clone().setY(0), true, closest); const swept = closest.distanceToSquared(bot.root.position.clone().setY(0)) < 1.45 ** 2
+      if (!swept && (Math.abs(local.x) > 1.55 || Math.abs(local.z) > 2.6)) continue
+      const frontal = moving && (swept || forward.dot(offset.setY(0).normalize()) > .15)
       if (frontal && bot.team !== tank.team) { if (this.playerTank === tank) this.kill(bot, false, forward.clone().multiplyScalar(2.2)); else { this.down(bot, forward.clone().multiplyScalar(2.2)); this.events.combatKill(tank.name, tank.team, bot.name, bot.team) } continue }
       const side = local.x >= 0 ? 1 : -1, push = new THREE.Vector3(side * .22, 0, 0).applyQuaternion(tank.root.quaternion); this.moveWithCollision(bot.root.position, push.x, push.z, .34)
     }
@@ -489,9 +584,26 @@ export class Game {
     }
     if (!moving) return
     for (let index = this.fortifications.length - 1; index >= 0; index--) {
-      const wire = this.fortifications[index]; if (wire.kind !== 'wire' || wire.center.distanceToSquared(tank.root.position) >= 2.8 ** 2) continue
+      const wire = this.fortifications[index]; if (wire.kind === 'hedgehog' || wire.kind === 'mg' || wire.center.distanceToSquared(tank.root.position) >= 2.8 ** 2) continue
       this.fortifications.splice(index, 1); for (const collider of wire.colliders) { const colliderIndex = this.colliders.indexOf(collider); if (colliderIndex >= 0) this.colliders.splice(colliderIndex, 1) } for (const mesh of wire.meshes) { const point = mesh.position.clone(), coverIndex = this.coverMeshes.indexOf(mesh); if (coverIndex >= 0) this.coverMeshes.splice(coverIndex, 1); this.scene.remove(mesh); mesh.geometry.dispose(); const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]; materials.forEach(material => this.disposeMaterial(material)); for (let spark = 0; spark < 2; spark++) this.particle(point, new THREE.Vector3((Math.random() - .5) * 2, .4 + Math.random(), (Math.random() - .5) * 2), 0x5d5a4d, .055, .45, 2.5) }
-      this.status = `${tank.name}碾毁铁丝网`; this.statusUntil = performance.now() / 1000 + 1.4
+      this.status = `${tank.name}碾毁${wire.kind === 'wire' ? '铁丝网' : '沙袋墙'}`; this.statusUntil = performance.now() / 1000 + 1.4
+    }
+  }
+  private resolveTransportInteractions(transport: Transport, movement: THREE.Vector3) {
+    if (movement.lengthSq() <= .00035) return
+    const forward = movement.clone().normalize(), sweep = new THREE.Line3(transport.root.position.clone().sub(movement).setY(0), transport.root.position.clone().setY(0)), closest = new THREE.Vector3()
+    for (const bot of this.bots) {
+      if (!bot.alive || bot.riding === transport) continue
+      const offset = bot.root.position.clone().sub(transport.root.position), local = offset.clone().applyQuaternion(transport.root.quaternion.clone().invert())
+      sweep.closestPointToPoint(bot.root.position.clone().setY(0), true, closest); const swept = closest.distanceToSquared(bot.root.position.clone().setY(0)) < 1.6 ** 2
+      if (!swept && (Math.abs(local.x) > 1.5 || Math.abs(local.z) > 3 || forward.dot(offset.setY(0).normalize()) < -.15)) continue
+      if (bot.team !== transport.team) { if (this.playerTransport === transport) this.kill(bot, false, forward.clone().multiplyScalar(2.6)); else { this.down(bot, forward.clone().multiplyScalar(2.6)); this.events.combatKill(transport.name, transport.team, bot.name, bot.team) } continue }
+      const side = local.x >= 0 ? 1 : -1, push = new THREE.Vector3(side * .28, 0, 0).applyQuaternion(transport.root.quaternion); this.moveWithCollision(bot.root.position, push.x, push.z, .34)
+    }
+    sweep.closestPointToPoint(this.camera.position.clone().setY(0), true, closest); if (transport.team === 'enemy' && !this.dead && !this.playerTank && !this.playerTransport && closest.distanceToSquared(this.camera.position.clone().setY(0)) < 1.65 ** 2) this.hurtPlayer(260, transport.root.position, `${transport.name} · 车轮碾压`)
+    for (let index = this.fortifications.length - 1; index >= 0; index--) {
+      const fortification = this.fortifications[index]; if (fortification.kind === 'hedgehog' || fortification.center.distanceToSquared(transport.root.position) >= 3.2 ** 2) continue
+      this.fortifications.splice(index, 1); for (const collider of fortification.colliders) { const infantryIndex = this.colliders.indexOf(collider); if (infantryIndex >= 0) this.colliders.splice(infantryIndex, 1) } for (const mesh of fortification.meshes) { const coverIndex = this.coverMeshes.indexOf(mesh); if (coverIndex >= 0) this.coverMeshes.splice(coverIndex, 1); this.scene.remove(mesh); mesh.geometry.dispose() } this.markCollidersDirty()
     }
   }
   private navBlocked(x: number, z: number, radius = .4) {
@@ -512,8 +624,24 @@ export class Game {
   }
   private findBotPath(from: THREE.Vector2, target: THREE.Vector2) {
     this.syncColliders()
+    const recastPath = this.recastNavigation.path(from, target)
+    if (recastPath?.length) return recastPath
     const path = this.pathfinder.findPath(from.x, from.y, target.x, target.y, (ax, az, bx, bz) => this.navLineClearXZ(ax, az, bx, bz))
     return path.map(point => new THREE.Vector2(point.x, point.z))
+  }
+  private songhuTacticalAnchor(bot: Bot, objective: Objective, formationSlot: number, finalAnchor: THREE.Vector3) {
+    if (bot.urbanLane === undefined) {
+      const laneSlot = formationSlot % 10
+      bot.urbanLane = laneSlot < 4 ? -1 : laneSlot < 8 ? 1 : 0
+    }
+    const laneX = bot.urbanLane < 0 ? -20 : bot.urbanLane > 0 ? 22 : 6
+    const zDistance = objective.position.z - bot.root.position.z
+    const direction = Math.sign(zDistance) || 1
+    if (Math.abs(zDistance) <= 22) return finalAnchor
+    // Enter the assigned street first, then advance parallel to the main road.
+    // A single diagonal waypoint lets shortest-path navigation drift straight back onto the avenue.
+    if (Math.abs(bot.root.position.x - laneX) > 3.2) return new THREE.Vector3(laneX, 0, bot.root.position.z + direction * 5)
+    return new THREE.Vector3(laneX, 0, objective.position.z - direction * 18)
   }
   private botNavDirection(bot: Bot, target: THREE.Vector2, time: number) {
     const from = this.tmpV2A.set(bot.root.position.x, bot.root.position.z)
@@ -530,10 +658,10 @@ export class Game {
     if (now - sample.sampledAt >= .7) { const current = new THREE.Vector2(bot.root.position.x, bot.root.position.z); sample.stalledFor = current.distanceTo(sample.position) < .16 ? sample.stalledFor + now - sample.sampledAt : 0; sample.position.copy(current); sample.sampledAt = now }
     this.botMotion.set(bot, sample)
     if (sample.stalledFor > 1.35) { const candidates: THREE.Vector3[] = []; for (const radius of [1, 1.6, 2.3, 3]) for (let index = 0; index < 16; index++) { const angle = index / 16 * Math.PI * 2, point = new THREE.Vector3(bot.root.position.x + Math.cos(angle) * radius, 0, bot.root.position.z + Math.sin(angle) * radius); if (!this.navBlocked(point.x, point.z, .38)) candidates.push(point) } const landing = candidates.sort((a, b) => new THREE.Vector2(a.x, a.z).distanceToSquared(target) - new THREE.Vector2(b.x, b.z).distanceToSquared(target))[0]; if (landing) { landing.y = this.terrainHeight(landing.x, landing.z); bot.vaultFrom = bot.root.position.clone(); bot.vaultTo = landing; bot.vaultStartedAt = now; bot.vaultUntil = now + .5; bot.navPath = undefined; bot.navTarget = undefined; bot.navRefreshAt = 0; sample.stalledFor = 0; return true } }
-    const desired = this.botNavDirection(bot, target, now); if (!desired.lengthSq()) return false; desired.normalize()
+    const desired = this.recastNavigation.steer(bot, bot.root.position, target, speed) ?? this.botNavDirection(bot, target, now); if (!desired.lengthSq()) return false; desired.normalize()
     const separation = new THREE.Vector2()
-    for (const other of this.bots) { if (other === bot || !other.alive || other.riding) continue; const ox = bot.root.position.x - other.root.position.x, oz = bot.root.position.z - other.root.position.z, distanceSq = ox * ox + oz * oz; if (distanceSq > .01 && distanceSq < 1.45 ** 2) separation.add(new THREE.Vector2(ox, oz).multiplyScalar((1.45 - Math.sqrt(distanceSq)) / distanceSq)) }
-    desired.addScaledVector(separation, .38).normalize(); const step = speed * dt
+    for (const other of this.bots) { if (other === bot || !other.alive || other.riding) continue; const ox = bot.root.position.x - other.root.position.x, oz = bot.root.position.z - other.root.position.z, distanceSq = ox * ox + oz * oz, spacing = other.team === bot.team ? 2.1 : 1.15; if (distanceSq > .01 && distanceSq < spacing ** 2) separation.add(new THREE.Vector2(ox, oz).multiplyScalar((spacing - Math.sqrt(distanceSq)) / distanceSq * (other.team === bot.team ? 1 : .45))) }
+    desired.addScaledVector(separation, .52).normalize(); const step = speed * dt
     if (this.moveWithCollision(bot.root.position, desired.x * step, desired.y * step, .34)) { bot.stuckFor = 0; bot.root.position.y = this.terrainHeight(bot.root.position.x, bot.root.position.z); return true }
     const probe = bot.root.position.clone().add(new THREE.Vector3(desired.x * .72, 0, desired.y * .72)), obstacle = this.colliders.find(collider => probe.x > collider.minX - .34 && probe.x < collider.maxX + .34 && probe.z > collider.minZ - .34 && probe.z < collider.maxZ + .34), vaultable = obstacle && this.fortifications.some(item => (item.kind === 'sandbag' || item.kind === 'wire') && item.colliders.includes(obstacle))
     if (vaultable) { const landing = bot.root.position.clone().add(new THREE.Vector3(desired.x * 1.65, 0, desired.y * 1.65)); if (!this.navBlocked(landing.x, landing.z, .34)) { const now = performance.now() / 1000; landing.y = this.terrainHeight(landing.x, landing.z); bot.vaultFrom = bot.root.position.clone(); bot.vaultTo = landing; bot.vaultStartedAt = now; bot.vaultUntil = now + .48; bot.stuckFor = 0; bot.navPath = undefined; return true } }
@@ -625,14 +753,24 @@ export class Game {
     this.tickets = [this.maxTickets, this.maxTickets]
     if (this.campaign.rule !== 'conquest') this.tickets[this.campaign.attacker === 'ally' ? 1 : 0] = Infinity
   }
+  private isSonghuOperation() { return this.campaign.id === 'songhu' }
+  private operationOpeningActive(time: number) { return this.isSonghuOperation() && this.operationPhase === 0 && this.operationOpeningUntil > time }
+  private operationCeasefireActive(time: number) { return this.operationOpeningActive(time) || this.isSonghuOperation() && time < this.operationTransitionUntil }
+  private operationStages() { return [[0, 1], [2, 3], [4, 5]] as const }
+  private activeAssaultIndices() { return this.isSonghuOperation() ? [...this.operationStages()[this.operationPhase]] : [this.assaultIndex] }
+  private activeAssaultObjectives() { return this.activeAssaultIndices().map(index => this.objectives[index]).filter(Boolean) }
+  private assaultAttacker(): Team { return this.isSonghuOperation() && this.operationPhase === 2 ? 'ally' : this.campaign.attacker ?? 'ally' }
+  private pendingAssaultObjectives() { const attacker = this.assaultAttacker(); return this.activeAssaultObjectives().filter(objective => objective.owner !== attacker) }
+  private operationLabel() { return ['天通庵前哨战', '八字桥血战', '闸北阵地反攻'][this.operationPhase] ?? '' }
   private resetModeState() {
-    this.assaultIndex = 0; this.resetTickets(); this.matchTime = this.campaign.rule === 'demolition' ? 16 * 60 : 18 * 60
+    this.assaultIndex = 0; this.operationPhase = 0; this.operationTransitionUntil = 0; this.operationOpeningUntil = 0; this.operationOpeningBarrage = false; this.resetTickets(); this.matchTime = this.isSonghuOperation() ? 24 * 60 : this.campaign.rule === 'demolition' ? 16 * 60 : 18 * 60
     const defender: Team = this.campaign.attacker === 'ally' ? 'enemy' : 'ally'
     for (const point of this.objectives) { point.owner = this.campaign.rule === 'conquest' ? null : defender; point.capturing = null; point.progress = 0 }
+    if (this.isSonghuOperation()) for (const point of this.objectives) point.owner = 'ally'
     if (this.campaign.rule === 'conquest') { const sorted = [...this.objectives].sort((a, b) => b.position.z - a.position.z); if (sorted.length) { sorted[0].owner = 'ally'; sorted[sorted.length - 1].owner = 'enemy' } if (sorted.length >= 5) { sorted[1].owner = 'ally'; sorted[sorted.length - 2].owner = 'enemy' } }
     for (const depot of this.depots) { depot.hp = 420; depot.destroyed = false; depot.root.visible = true; depot.root.rotation.set(0, 0, 0); (depot.hitbox.material as THREE.MeshStandardMaterial).color.setHex(0x64543b) }
   }
-  private forces() { for (let i = 0; i < this.campaign.allies; i++) this.bot('ally', -5.5 + i % 6 * 2.2, 39 + Math.floor(i / 6) * 3 - Math.abs(i % 6 - 2.5)); for (let i = 0; i < this.campaign.enemies; i++) this.bot('enemy', -7 + i % 6 * 2.8, -34 - Math.floor(i / 6) * 4) }
+  private forces() { const rear = this.mapBounds.halfDepth - 22, allyLine = this.isSonghuOperation() ? this.campaign.flags.slice(0, 2).reduce((sum, flag) => sum + flag.z, 0) / 2 + 17 : rear, enemyLine = this.isSonghuOperation() ? -this.mapBounds.halfDepth + 11 : -rear; for (let i = 0; i < this.campaign.allies; i++) this.bot('ally', -5.5 + i % 6 * 2.2, allyLine + Math.floor(i / 6) * 3 - Math.abs(i % 6 - 2.5)); for (let i = 0; i < this.campaign.enemies; i++) this.bot('enemy', -7 + i % 6 * 2.8, enemyLine - Math.floor(i / 6) * 4) }
   private bot(team: Team, x: number, z: number) {
     const index = this.bots.filter(bot => bot.team === team).length, role = (team === 'ally' ? this.battleLoadouts : loadouts)[index % loadouts.length].id, inSquad = team === 'ally' && index < 3, cpc = team === 'ally' && this.campaign.id === 'baituan'
     const mesh = buildSoldier({ team, role, cpc, inSquad, box: (s, p, c, parent) => this.box(s, p, c, parent), mat: (c, r) => this.mat(c, r) })
@@ -726,7 +864,7 @@ export class Game {
   }
   private plane(team: Team) {
     const captured = team === 'ally' && this.campaign.id === 'baituan', index = this.planes.filter(plane => plane.team === team).length
-    const allied = [{ name: '霍克三型战斗机', maxHp: 95, bombs: 1, color: 0x50655a }, { name: '伊-16 援华战斗机', maxHp: 140, bombs: 2, color: 0x5f6a58 }], capturedRoster = [{ name: '一式战“隼”（缴获）', maxHp: 150, bombs: 2, color: 0x6f7a6a }, { name: '九九式轻爆机（缴获）', maxHp: 140, bombs: 3, color: 0x667062 }], japanese = [{ name: '零式舰上战斗机', maxHp: 90, bombs: 1, color: 0x8a9284 }, { name: '一式战斗机“隼”', maxHp: 150, bombs: 3, color: 0x77806e }]
+    const allied = [{ name: '霍克三型战斗机', maxHp: 230, bombs: 1, color: 0x50655a }, { name: '伊-16 援华战斗机', maxHp: 280, bombs: 2, color: 0x5f6a58 }], capturedRoster = [{ name: '一式战“隼”（缴获）', maxHp: 290, bombs: 2, color: 0x6f7a6a }, { name: '九九式轻爆机（缴获）', maxHp: 300, bombs: 3, color: 0x667062 }], japanese = [{ name: '零式舰上战斗机', maxHp: 220, bombs: 1, color: 0x8a9284 }, { name: '一式战斗机“隼”', maxHp: 290, bombs: 3, color: 0x77806e }]
     const roster = team === 'enemy' ? japanese : captured ? capturedRoster : allied, config = roster[index % roster.length], scale = index % 2 ? 1.1 : 1
     const mesh = buildPlane({ color: config.color, team, scale, box: (s, p, c, parent) => this.box(s, p, c, parent), mat: (c, r) => this.mat(c, r) })
     this.scene.add(mesh.root)
@@ -751,7 +889,7 @@ export class Game {
         this.pitch = THREE.MathUtils.clamp(this.pitch - movementY * sens, -1.35, 1.35)
       }
     })
-    addEventListener('mousedown', e => { if (!this.active || this.dead) return; if (document.pointerLockElement !== this.canvas) { this.canvas.requestPointerLock(); return } if (e.button === 0 && (!this.playerTransport || this.playerTransportPassenger)) { this.firing = true; this.playerTank ? this.firePlayerTank() : this.playerMortar ? this.fireMortar() : this.playerEmplacement ? this.fireEmplacement() : this.playerMG ? this.fireMachineGun() : this.fire() } if (e.button === 2 && this.playerTank) { this.tankMgFiring = true; this.firePlayerTankMg() } else if (e.button === 2 && this.playerPlane) this.dropPlaneBomb(); else if (e.button === 2 && (!this.playerTransport || this.playerTransportPassenger) && !this.playerMortar && !this.playerEmplacement && !this.playerMG) { this.aiming = true; this.events.aim(true) } })
+    addEventListener('mousedown', e => { if (!this.active || this.dead) return; if (document.pointerLockElement !== this.canvas) { this.canvas.requestPointerLock(); return } if (this.operationCeasefireActive(performance.now() / 1000)) return; if (e.button === 0 && (!this.playerTransport || this.playerTransportPassenger)) { this.firing = true; this.playerTank ? this.firePlayerTank() : this.playerMortar ? this.fireMortar() : this.playerEmplacement ? this.fireEmplacement() : this.playerMG ? this.fireMachineGun() : this.fire() } if (e.button === 2 && this.playerTank) { this.tankMgFiring = true; this.firePlayerTankMg() } else if (e.button === 2 && this.playerPlane) this.dropPlaneBomb(); else if (e.button === 2 && (!this.playerTransport || this.playerTransportPassenger) && !this.playerMortar && !this.playerEmplacement && !this.playerMG) { this.aiming = true; this.events.aim(true) } })
     addEventListener('mouseup', e => { if (e.button === 0) this.firing = false; if (e.button === 2) { this.tankMgFiring = false; this.aiming = false; this.events.aim(false) } }); addEventListener('contextmenu', e => e.preventDefault()); addEventListener('pointerlockchange', () => { this.pointerMovementReady = false; this.pointerLockGraceUntil = performance.now() + 180; if (document.pointerLockElement !== this.canvas) { this.releaseGrenadeCook(); this.firing = false; this.tankMgFiring = false; this.aiming = false; this.events.aim(false) } })
   }
   private fire() {
@@ -901,15 +1039,16 @@ export class Game {
   private createMachineGun(position: THREE.Vector3, face: number, deployable = true) {
     const mesh = buildMachineGun({ box: (s, p, c, parent) => this.box(s, p, c, parent), mat: (c, r) => this.mat(c, r) })
     mesh.root.position.copy(position).setY(1); mesh.root.rotation.y = face; this.scene.add(mesh.root)
-    return { root: mesh.root, yaw: mesh.yaw, pitch: mesh.pitch, muzzle: mesh.muzzle, position: position.clone(), ammo: 250, heat: 0, occupied: false, deployable, operatorUntil: 0, nextShot: 0 }
+    return { root: mesh.root, yaw: mesh.yaw, pitch: mesh.pitch, muzzle: mesh.muzzle, position: position.clone(), heat: 0, occupied: false, deployable, operatorUntil: 0, nextShot: 0 }
   }
   private enterMachineGun(machineGun: MachineGun) { if (machineGun.operator) { machineGun.operator.machineGun = undefined; machineGun.operator = undefined } this.playerMG = machineGun; machineGun.occupied = true; this.weapon.visible = false; this.aiming = false; this.events.aim(false); this.camera.position.copy(machineGun.position).add(new THREE.Vector3(0, 1.45, 0)); this.status = '重机枪已就位'; this.statusUntil = performance.now() / 1000 + 1.2 }
   private leaveMachineGun() { const machineGun = this.playerMG; if (!machineGun) return; machineGun.occupied = false; this.playerMG = undefined; this.weapon.visible = true; this.camera.position.copy(machineGun.position).add(new THREE.Vector3(1.1, 1.72, 0)); this.events.loadout(this.activeLoadout()); this.events.ammo(this.mag, this.reserve, false) }
   private fireMachineGun() {
-    const machineGun = this.playerMG, now = performance.now(); if (!machineGun || !machineGun.ammo || machineGun.heat >= 1 || now < this.mgShotAt) return; this.mgShotAt = now + 60000 / 650; machineGun.ammo--; machineGun.heat = Math.min(1, machineGun.heat + .018); this.ray.setFromCamera(new THREE.Vector2((Math.random() - .5) * (.009 + machineGun.heat * .014), (Math.random() - .5) * (.009 + machineGun.heat * .014)), this.camera); const hit = this.withStaticCover(this.ray.intersectObjects(this.hitTargetsAgainst('enemy'), false)[0]), bot = hit?.object.userData.bot as Bot | undefined, tank = hit?.object.userData.tank as Tank | undefined, depot = hit?.object.userData.depot as Depot | undefined, start = machineGun.muzzle.getWorldPosition(new THREE.Vector3()), end = hit?.point ?? this.ray.ray.at(120, new THREE.Vector3()); this.tracer(start, end, 0xffdf82); this.particle(start, new THREE.Vector3(), 0xffbd55, .11, .05); this.audio.shot('auto'); if (bot) { const headshot = hit?.object.userData.hitZone === 'head', shotDamage = headshot ? 46 : 25, dealt = Math.min(bot.hp, shotDamage); bot.hp -= shotDamage; const killed = bot.hp <= 0; this.events.hit(killed, headshot, dealt); if (killed) this.kill(bot, headshot) } else if (tank) this.damageTank(tank, 3, true); else if (depot) this.damageDepot(depot, 7, true)
+    const machineGun = this.playerMG, now = performance.now(); if (!machineGun || machineGun.heat >= 1 || now < this.mgShotAt) return; this.mgShotAt = now + 60000 / 650; machineGun.heat = Math.min(1, machineGun.heat + .018); this.ray.setFromCamera(new THREE.Vector2((Math.random() - .5) * (.009 + machineGun.heat * .014), (Math.random() - .5) * (.009 + machineGun.heat * .014)), this.camera); const hit = this.withStaticCover(this.ray.intersectObjects(this.hitTargetsAgainst('enemy'), false)[0]), bot = hit?.object.userData.bot as Bot | undefined, tank = hit?.object.userData.tank as Tank | undefined, depot = hit?.object.userData.depot as Depot | undefined, start = machineGun.muzzle.getWorldPosition(new THREE.Vector3()), end = hit?.point ?? this.ray.ray.at(120, new THREE.Vector3()); this.tracer(start, end, 0xffdf82); this.particle(start, new THREE.Vector3(), 0xffbd55, .11, .05); this.audio.shot('auto'); if (bot) { const headshot = hit?.object.userData.hitZone === 'head', shotDamage = headshot ? 46 : 25, dealt = Math.min(bot.hp, shotDamage); bot.hp -= shotDamage; const killed = bot.hp <= 0; this.events.hit(killed, headshot, dealt); if (killed) this.kill(bot, headshot) } else if (tank) this.damageTank(tank, 3, true); else if (depot) this.damageDepot(depot, 7, true)
   }
-  private updatePlayerMachineGun(dt: number) { const machineGun = this.playerMG; if (!machineGun) return; if (this.firing) this.fireMachineGun(); machineGun.heat = Math.max(0, machineGun.heat - dt * (this.firing ? .035 : .2)); this.camera.position.copy(machineGun.position).add(new THREE.Vector3(0, 1.45, 0)); this.pitch = THREE.MathUtils.clamp(this.pitch, -.45, .3); this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ'); machineGun.yaw.rotation.y = this.yaw - machineGun.root.rotation.y; machineGun.pitch.rotation.x = this.pitch; this.events.ammo(machineGun.ammo, 0, machineGun.heat >= 1); this.events.loadout({ ...this.selectedLoadout, weapon: '二四式重机枪', mode: machineGun.heat >= 1 ? '枪管过热' : `固定火力 · 热量 ${Math.round(machineGun.heat * 100)}%` }) }
+  private updatePlayerMachineGun(dt: number) { const machineGun = this.playerMG; if (!machineGun) return; if (this.firing) this.fireMachineGun(); machineGun.heat = Math.max(0, machineGun.heat - dt * (this.firing ? .035 : .2)); this.camera.position.copy(machineGun.position).add(new THREE.Vector3(0, 1.45, 0)); this.pitch = THREE.MathUtils.clamp(this.pitch, -.45, .3); this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ'); machineGun.yaw.rotation.y = this.yaw - machineGun.root.rotation.y; machineGun.pitch.rotation.x = this.pitch; this.events.ammo(-1, 0, machineGun.heat >= 1); this.events.loadout({ ...this.selectedLoadout, weapon: '二四式重机枪', mode: machineGun.heat >= 1 ? '枪管过热 · 停火冷却' : `固定火力 · 热量 ${Math.round(machineGun.heat * 100)}%` }) }
   private updateMachineGuns(dt: number, time: number) {
+    if (this.operationOpeningActive(time)) return
     const targetFor = (machineGun: MachineGun, team: Team) => {
       const targets: { position: THREE.Vector3; bot?: Bot; player?: boolean }[] = this.bots.filter(bot => bot.alive && !bot.drivingTank && !bot.drivingTransport && !bot.piloting && !bot.chuting && bot.team !== team).map(bot => ({ position: bot.root.position, bot }))
       if (team === 'enemy' && !this.dead && !this.playerTank && !this.playerPlane) targets.push({ position: this.camera.position, player: true })
@@ -918,7 +1057,7 @@ export class Game {
     for (const machineGun of this.machineGuns) {
       if (machineGun.occupied) continue
       machineGun.heat = Math.max(0, machineGun.heat - dt * .15)
-      if (machineGun.operator && (!machineGun.operator.alive || machineGun.operator.machineGun !== machineGun || time >= machineGun.operatorUntil || !machineGun.ammo)) { machineGun.operator.machineGun = undefined; machineGun.operator = undefined }
+      if (machineGun.operator && (!machineGun.operator.alive || machineGun.operator.machineGun !== machineGun || time >= machineGun.operatorUntil)) { machineGun.operator.machineGun = undefined; machineGun.operator = undefined }
       if (!machineGun.operator) {
         const candidates = this.bots.filter(bot => bot.alive && !bot.inSquad && !bot.riding && !bot.drivingTank && !bot.drivingTransport && !bot.piloting && !bot.chuting && !bot.emplacement && !bot.machineGun && !bot.mortarRig && bot.root.position.distanceToSquared(machineGun.position) < 14 ** 2).sort((a, b) => a.root.position.distanceToSquared(machineGun.position) - b.root.position.distanceToSquared(machineGun.position)), operator = candidates.find(bot => targetFor(machineGun, bot.team))
         if (operator) { machineGun.operator = operator; machineGun.operatorUntil = time + 14 + Math.random() * 10; operator.machineGun = machineGun; operator.coverTarget = undefined }
@@ -926,8 +1065,8 @@ export class Game {
       const operator = machineGun.operator; if (!operator || operator.root.position.distanceToSquared(machineGun.position) > 2 ** 2) continue
       const target = targetFor(machineGun, operator.team); if (!target) { operator.machineGun = undefined; machineGun.operator = undefined; continue }
       const dx = target.position.x - machineGun.position.x, dz = target.position.z - machineGun.position.z, distance = Math.hypot(dx, dz), worldYaw = Math.atan2(dx, dz) + Math.PI; machineGun.yaw.rotation.y = worldYaw - machineGun.root.rotation.y; machineGun.pitch.rotation.x = -THREE.MathUtils.clamp(Math.atan2(target.position.y + (target.bot ? 1.2 : 0) - machineGun.root.position.y, distance), -.3, .35); operator.root.rotation.y = worldYaw
-      if (machineGun.heat >= 1 || time < machineGun.nextShot || !machineGun.ammo) continue
-      machineGun.nextShot = time + .095; machineGun.ammo--; machineGun.heat = Math.min(1, machineGun.heat + .018)
+      if (machineGun.heat >= 1 || time < machineGun.nextShot) continue
+      machineGun.nextShot = time + .095; machineGun.heat = Math.min(1, machineGun.heat + .018)
       const start = machineGun.muzzle.getWorldPosition(new THREE.Vector3()), end = target.position.clone().setY(target.player ? this.camera.position.y : 1.3); end.x += (Math.random() - .5) * distance * .018; end.y += (Math.random() - .5) * distance * .012; const direction = end.clone().sub(start), shotDistance = direction.length(); this.ray.set(start, direction.normalize()); this.ray.far = shotDistance; const obstruction = this.withStaticCover(this.ray.intersectObjects(this.occlusionMeshes(), false)[0]); this.ray.far = Infinity; const hit = !obstruction || obstruction.distance >= shotDistance - .4; if (obstruction && !hit) end.copy(obstruction.point); this.tracer(start, end, operator.team === 'ally' ? 0xffdf82 : 0xff8068); const sound = this.soundAt(start); this.audio.shot('auto', sound.volume, sound.pan); this.alertBots(operator.team, machineGun.position)
       if (!hit || Math.random() > THREE.MathUtils.clamp(.76 - distance * .009, .18, .68)) continue
       if (target.bot) { target.bot.hp -= 22; target.bot.suppression = Math.min(1.6, target.bot.suppression + .24); if (target.bot.hp <= 0) { operator.kills++; this.down(target.bot, undefined, false, operator) } } else if (target.player) { this.hurtPlayer(8 * this.enemyDamage, start, `${operator.name} · 运兵车车载机枪`); if (this.dead) operator.kills++ }
@@ -963,7 +1102,7 @@ export class Game {
     if (time >= this.resupplyAt && this.ammoCrates.some(crate => crate.distanceToSquared(this.camera.position) < 3.2 ** 2)) this.startSupplyAction('ammo', time)
   }
   private interact() {
-    if (this.dead || this.buildAction || this.supplyAction || this.bandagingUntil || this.grenadeCooking) return
+    if (this.dead || this.parachuting || this.buildAction || this.supplyAction || this.bandagingUntil || this.grenadeCooking) return
     if (this.playerPlane) return
     if (this.playerTransport) { this.leaveTransport(); return }
     if (this.playerTank) { this.leaveTank(); return }
@@ -974,8 +1113,8 @@ export class Game {
     const machineGun = this.machineGuns.filter(candidate => !candidate.occupied && candidate.position.distanceToSquared(this.camera.position) < 2.8 ** 2).sort((a, b) => a.position.distanceToSquared(this.camera.position) - b.position.distanceToSquared(this.camera.position))[0]; if (machineGun) { this.enterMachineGun(machineGun); return }
     const emplacement = this.emplacements.filter(candidate => candidate.alive && candidate.team === 'ally' && !candidate.occupied).sort((a, b) => a.root.position.distanceToSquared(this.camera.position) - b.root.position.distanceToSquared(this.camera.position))[0]
     if (emplacement && emplacement.root.position.distanceToSquared(this.camera.position) < 3.6 ** 2) { this.enterEmplacement(emplacement); return }
-    const plane = this.planes.find(candidate => candidate.alive && candidate.team === 'ally' && !candidate.playerDriven)
-    if (plane && this.camera.position.z > 40) { this.enterPlane(plane); return }
+    const plane = this.planes.filter(candidate => candidate.alive && candidate.team === 'ally' && !candidate.playerDriven && Math.abs(candidate.root.position.y - this.camera.position.y) < 3).sort((a, b) => a.root.position.distanceToSquared(this.camera.position) - b.root.position.distanceToSquared(this.camera.position))[0]
+    if (plane && plane.root.position.distanceToSquared(this.camera.position) < 6 ** 2) { this.enterPlane(plane); return }
     const time = performance.now() / 1000, casualty = this.selectedLoadout.id === 'medic' ? this.bots.filter(bot => !bot.alive && bot.team === 'ally' && time >= bot.reviveAt && bot.root.position.distanceToSquared(this.camera.position) < 2.8 ** 2).sort((a, b) => a.root.position.distanceToSquared(this.camera.position) - b.root.position.distanceToSquared(this.camera.position))[0] : undefined
     if (casualty) { this.reviveBot(casualty, time); return }
     const tank = this.tanks.filter(candidate => candidate.alive && candidate.team === 'ally' && !candidate.playerDriven).sort((a, b) => a.root.position.distanceToSquared(this.camera.position) - b.root.position.distanceToSquared(this.camera.position))[0]
@@ -1135,7 +1274,7 @@ export class Game {
       transport.root.rotation.y -= this.vehicleSteer * dt * 1.15 * Math.sign(this.vehicleThrottle)
     }
     const forward = this.truckForward(transport.root.rotation.y, this.tmpV3C)
-    const speed = this.vehicleThrottle * dt * (this.vehicleThrottle > 0 ? 6.8 : 3.4)
+    const speed = this.vehicleThrottle * dt * (this.vehicleThrottle > 0 ? 10.5 : 4.8)
     this.moveTankWithCollision(transport.root.position, forward.x * speed, forward.z * speed)
     for (const wheel of transport.wheels) wheel.rotation.x -= speed * 1.9
     const anchor = this.tmpV3A.copy(transport.root.position)
@@ -1144,7 +1283,7 @@ export class Game {
     this.camera.fov = THREE.MathUtils.damp(this.camera.fov, 68, 10, dt)
     this.camera.updateProjectionMatrix()
     const riders = this.bots.filter(bot => bot.alive && bot.riding === transport).length
-    const speedKmh = Math.round(Math.abs(this.vehicleThrottle) * (this.vehicleThrottle > 0 ? 58 : 26))
+    const speedKmh = Math.round(Math.abs(this.vehicleThrottle) * (this.vehicleThrottle > 0 ? 64 : 30))
     this.events.vehicle(true, transport.hp, true, transport.name, `速度 ${speedKmh} km/h · 载员 ${riders}/6 · WASD 驾驶 · E 下车`, transport.maxHp, 1)
   }
   private updatePlayerTransportPassenger() {
@@ -1168,7 +1307,7 @@ export class Game {
   }
   private releasePlanePilot(plane: Plane) {
     const pilot = plane.pilot; if (!pilot) return
-    plane.pilot = undefined; pilot.piloting = undefined; pilot.root.visible = true; pilot.body.layers.enable(0); pilot.head.layers.enable(0); pilot.weapon.visible = true; pilot.root.position.set((Math.random() - .5) * 8, 0, pilot.team === 'ally' ? 48 : -48); pilot.nextShot = performance.now() / 1000 + 1
+    plane.pilot = undefined; pilot.piloting = undefined; pilot.root.visible = true; pilot.body.layers.enable(0); pilot.head.layers.enable(0); pilot.weapon.visible = true; const baseZ = this.mapBounds.halfDepth - 10; pilot.root.position.set((Math.random() - .5) * 8, 0, pilot.team === 'ally' ? baseZ : -baseZ); pilot.nextShot = performance.now() / 1000 + 1
   }
   private enterPlane(plane: Plane) {
     this.releasePlanePilot(plane)
@@ -1336,7 +1475,7 @@ export class Game {
     if (structure) this.damageStructure(structure, shell.damage * 2.1)
     if (urbanBuilding) this.damageUrbanBuilding(urbanBuilding, shell.damage * 2.2)
     for (const target of this.bots) { if (!target.alive || target.team === shell.team || target === bot) continue; const distance = target.root.position.distanceTo(position); if (distance >= 3.4) continue; target.hp -= 90 * (1 - distance / 3.4); if (target.hp <= 0) shell.playerOwned ? this.kill(target, false, target.root.position.clone().sub(position)) : this.down(target, target.root.position.clone().sub(position)) }
-    const armorHit = Boolean(tank || transport || gun), structureHit = Boolean(depot || structure || urbanBuilding), groundHit = !hit || position.y <= .12
+    const armorHit = Boolean(tank || transport || gun), structureHit = Boolean(depot || structure || urbanBuilding), groundHit = !hit || position.y <= Math.max(.12, this.terrainHeight(position.x, position.z) + .12)
     this.cannonImpactFx(position, armorHit ? 'armor' : structureHit ? 'structure' : groundHit ? 'ground' : bot ? 'flesh' : 'hard', shell.damage)
     if (groundHit) this.crater(position, THREE.MathUtils.clamp(.72 + shell.damage / 260, 1.05, 1.75))
   }
@@ -1391,7 +1530,7 @@ export class Game {
     const turnScale = Math.abs(this.vehicleThrottle) > .08 ? 1 : .45
     tank.root.rotation.y -= this.vehicleSteer * dt * .95 * mobility * turnScale
     const forward = this.tankForward(tank.root.rotation.y, this.tmpV3C)
-    const speed = this.vehicleThrottle * dt * (this.vehicleThrottle > 0 ? 4.6 : 2.5) * mobility
+    const speed = this.vehicleThrottle * dt * (this.vehicleThrottle > 0 ? 6.4 : 3.2) * mobility
     this.moveTankWithCollision(tank.root.position, forward.x * speed, forward.z * speed)
     const commanderRate = this.crewAlive(tank, 'commander') ? 1 : .72
     // Player turret tracks mouse without lag; commander injury only slows gun pitch.
@@ -1399,10 +1538,10 @@ export class Game {
     const gunPitch = THREE.MathUtils.clamp(this.pitch, -.2, .38)
     tank.pitch.rotation.x = THREE.MathUtils.damp(tank.pitch.rotation.x, gunPitch, (2.4 + tank.turretHealth / 28) * commanderRate, dt)
     if (this.tankGunnerView) {
-      // Seat behind gun sight; look with mouse (matches turret).
-      const seat = tank.turret.localToWorld(this.tmpV3A.set(0, .42, -.55))
-      this.camera.position.copy(seat)
-      this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ')
+      // The optic follows the physical gun axis, so the reticle and shell trajectory cannot diverge.
+      const lens = tank.pitch.localToWorld(this.tmpV3A.set(.3, .16, -1.18))
+      this.camera.position.copy(lens)
+      this.camera.quaternion.copy(tank.pitch.getWorldQuaternion(new THREE.Quaternion()))
     } else {
       const look = this.tmpV3B.copy(tank.root.position).setY(tank.root.position.y + 1.35)
       this.placeChaseCamera(tank.root.position, look, 8.8, 2.7, 3.4, tank.root)
@@ -1424,10 +1563,10 @@ export class Game {
     const barrelDirection = this.tmpV3B.set(0, 0, -1).applyQuaternion(tank.pitch.getWorldQuaternion(new THREE.Quaternion()))
     const projected = this.chaseCamLook.copy(muzzle).addScaledVector(barrelDirection, 80).project(this.camera)
     const pipVisible = projected.z < 1 && Math.abs(projected.x) <= 1.15 && Math.abs(projected.y) <= 1.15
-    this.events.tankSight(true, this.tankGunnerView, ready, pipVisible ? (projected.x * .5 + .5) * innerWidth : undefined, pipVisible ? (1 - (projected.y * .5 + .5)) * innerHeight : undefined)
+    this.events.tankSight(true, this.tankGunnerView, ready, !this.tankGunnerView && pipVisible ? (projected.x * .5 + .5) * innerWidth : undefined, !this.tankGunnerView && pipVisible ? (1 - (projected.y * .5 + .5)) * innerHeight : undefined)
     const failedRoles = tank.crewMen.filter(crew => !crew.alive).map(crew => crew.role === 'driver' ? '驾驶员' : crew.role === 'gunner' ? '炮手' : crew.role === 'loader' ? '装填手' : '车长').join('、')
     // gunnerView true = optic seat; label must match.
-    this.events.vehicle(true, tank.hp, ready, tank.name, `左键主炮 · 右键同轴 · C ${this.tankGunnerView ? '炮手瞄具' : '车长外视'} · 距离 ${Math.round(range)}m · ${failedRoles ? `${failedRoles}阵亡` : `乘员 ${tank.crew}/${tank.crewCapacity}`}`, tank.maxHp, ready ? 1 : Math.max(0, 1 - (this.tankShotAt - performance.now()) / 4300))
+    this.events.vehicle(true, tank.hp, ready, tank.name, `左键主炮 · 右键同轴 · C 切换至${this.tankGunnerView ? '车长外视' : '炮手瞄具'} · 距离 ${Math.round(range)}m · ${failedRoles ? `${failedRoles}阵亡` : `乘员 ${tank.crew}/${tank.crewCapacity}`}`, tank.maxHp, ready ? 1 : Math.max(0, 1 - (this.tankShotAt - performance.now()) / 4300))
   }
   private updateBrace() {
     const support = this.weaponSlot === 'primary' && this.selectedLoadout.id === 'support'
@@ -1472,7 +1611,7 @@ export class Game {
     if (entangled && time >= this.nextWireDamage) { this.nextWireDamage = time + .8; this.hurtPlayer(4, this.camera.position, '铁丝网割伤'); if (this.dead) return }
     this.updateBrace()
     if (this.braced && (this.keys.has('KeyW') || this.keys.has('KeyA') || this.keys.has('KeyS') || this.keys.has('KeyD') || this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'))) this.braced = false
-    const activeWeapon = this.activeLoadout(), scoped = activeWeapon.id === 'scout' && this.aiming, exhausted = time < this.breathExhaustedUntil; this.holdingBreath = scoped && !exhausted && this.stamina > .02 && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')); this.breathPhase += dt * (exhausted ? 4.4 : 1.65); const breathStrength = scoped ? this.holdingBreath ? .00028 : exhausted ? .008 : .0032 : 0, breathPitch = Math.sin(this.breathPhase) * breathStrength, breathYaw = Math.sin(this.breathPhase * .73 + .8) * breathStrength * .72, leanTarget = !this.braced && this.stance !== 'prone' && !this.keys.has('ShiftLeft') ? (this.keys.has('KeyQ') ? -1 : 0) + (this.keys.has('KeyE') ? 1 : 0) : 0; this.lean = THREE.MathUtils.damp(this.lean, leanTarget, 10, dt); if (this.firing && activeWeapon.kind === 'auto') this.fire(); this.camera.rotation.set(this.pitch + this.recoil + breathPitch, this.yaw + breathYaw, -this.lean * .075, 'YXZ'); this.recoil = THREE.MathUtils.lerp(this.recoil, 0, 1 - Math.exp(-dt * 12)); this.playerMuzzle.visible = time - this.shotAt < .045; this.events.breath(scoped, this.holdingBreath, exhausted)
+    const activeWeapon = this.activeLoadout(), scoped = activeWeapon.id === 'scout' && this.aiming, exhausted = time < this.breathExhaustedUntil; this.holdingBreath = scoped && !exhausted && this.stamina > .02 && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')); this.breathPhase += dt * (exhausted ? 4.4 : 1.65); const breathStrength = scoped ? this.holdingBreath ? .00028 : exhausted ? .008 : .0032 : 0, breathPitch = Math.sin(this.breathPhase) * breathStrength, breathYaw = Math.sin(this.breathPhase * .73 + .8) * breathStrength * .72, leanTarget = !this.braced && this.stance !== 'prone' && !this.keys.has('ShiftLeft') ? (this.keys.has('KeyQ') ? -1 : 0) + (this.keys.has('KeyE') ? 1 : 0) : 0; this.lean = THREE.MathUtils.damp(this.lean, leanTarget, 10, dt); if (this.firing && activeWeapon.kind === 'auto') this.fire(); this.camera.rotation.set(this.pitch + this.recoil + breathPitch, this.yaw + breathYaw, -this.lean * .075, 'YXZ'); this.recoil = THREE.MathUtils.lerp(this.recoil, 0, 1 - Math.exp(-dt * 12)); this.weapon.visible = !scoped; this.playerMuzzle.visible = !scoped && time - this.shotAt < .045; this.events.breath(scoped, this.holdingBreath, exhausted)
     const targetFov = this.aiming ? (activeWeapon.id === 'scout' ? 24 : 52) : 72; this.camera.fov = THREE.MathUtils.damp(this.camera.fov, targetFov, 14, dt); this.camera.updateProjectionMatrix()
     const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw)), movement = new THREE.Vector3(); if (this.keys.has('KeyW')) movement.add(forward); if (this.keys.has('KeyS')) movement.sub(forward); if (this.keys.has('KeyD')) movement.add(right); if (this.keys.has('KeyA')) movement.sub(right)
     const moving = movement.lengthSq() > 0, wantsSprint = !this.bandagingUntil && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) && this.keys.has('KeyW') && this.stance === 'stand' && !this.aiming, sprinting = moving && wantsSprint && this.stamina > .01
@@ -1481,14 +1620,14 @@ export class Game {
     if (this.jumpHeight || this.jumpVelocity) { const impactSpeed = this.jumpVelocity; this.jumpVelocity -= 15.5 * dt; this.jumpHeight += this.jumpVelocity * dt; if (this.jumpHeight <= 0) { this.jumpHeight = 0; this.jumpVelocity = 0; this.landingKick = THREE.MathUtils.clamp(Math.abs(impactSpeed) * .018, .055, .11); this.audio.click(115, .075) } }
     this.landingKick = THREE.MathUtils.damp(this.landingKick, 0, 11, dt)
     this.groundLevel = Math.max(this.terrainHeight(this.camera.position.x, this.camera.position.z), this.platformLevel(this.camera.position)); const eyeHeight = this.stance === 'prone' ? .63 : this.stance === 'crouch' ? 1.18 : 1.72; this.camera.position.y = THREE.MathUtils.damp(this.camera.position.y, this.groundLevel + eyeHeight + this.jumpHeight - this.landingKick, this.jumpHeight ? 28 : 14, dt)
-    if (!this.loading) { const bob = moving && !this.aiming ? Math.sin(this.movePhase * 2) * .012 : 0, sway = moving && !this.aiming ? Math.cos(this.movePhase) * .009 : 0, meleeAge = time - this.meleeAt, thrust = meleeAge >= 0 && meleeAge < .5 ? Math.sin(meleeAge / .5 * Math.PI) : 0; this.weapon.position.x = THREE.MathUtils.damp(this.weapon.position.x, (this.aiming ? 0 : .32) + sway + this.lean * .08, 18, dt); this.weapon.position.y = THREE.MathUtils.damp(this.weapon.position.y, (this.braced ? -.2 : this.aiming ? -.16 : -.27) + bob + thrust * .08, 18, dt); this.weapon.position.z = THREE.MathUtils.damp(this.weapon.position.z, (this.braced ? -.62 : this.aiming ? -.52 : -.65) - thrust * .72, 22, dt); this.weapon.rotation.x = THREE.MathUtils.damp(this.weapon.rotation.x, -thrust * .18, 18, dt); this.weapon.rotation.z = THREE.MathUtils.damp(this.weapon.rotation.z, this.lean * -.06 + thrust * .12, 18, dt) }
+    if (!this.loading) { const bob = moving && !this.aiming ? Math.sin(this.movePhase * 2) * .012 : 0, sway = moving && !this.aiming ? Math.cos(this.movePhase) * .009 : 0, meleeAge = time - this.meleeAt, thrust = meleeAge >= 0 && meleeAge < .5 ? Math.sin(meleeAge / .5 * Math.PI) : 0; this.weapon.position.x = THREE.MathUtils.damp(this.weapon.position.x, (this.aiming ? 0 : .32) + sway + this.lean * .08, 18, dt); this.weapon.position.y = THREE.MathUtils.damp(this.weapon.position.y, (this.braced ? -.2 : this.aiming ? -.22 : -.27) + bob + thrust * .08, 18, dt); this.weapon.position.z = THREE.MathUtils.damp(this.weapon.position.z, (this.braced ? -.62 : this.aiming ? -.58 : -.65) - thrust * .72, 22, dt); this.weapon.rotation.x = THREE.MathUtils.damp(this.weapon.rotation.x, -thrust * .18, 18, dt); this.weapon.rotation.z = THREE.MathUtils.damp(this.weapon.rotation.z, this.lean * -.06 + thrust * .12, 18, dt) }
     this.events.movement(this.stamina, this.stance)
   }
-  private scheduleArtillery(time: number) {
-    const team: Team = Math.random() < .52 ? 'enemy' : 'ally'
-    const activeObjective = this.campaign.rule === 'assault' ? this.objectives[this.assaultIndex] : this.objectives[Math.floor(Math.random() * this.objectives.length)]
+  private scheduleArtillery(time: number, forcedTeam?: Team, forcedCount?: number) {
+    const team: Team = forcedTeam ?? (Math.random() < .52 ? 'enemy' : 'ally')
+    const assaultObjectives = this.activeAssaultObjectives(), activeObjective = this.campaign.rule === 'assault' ? assaultObjectives[Math.floor(Math.random() * assaultObjectives.length)] : this.objectives[Math.floor(Math.random() * this.objectives.length)]
     if (!activeObjective) return
-    const count = 4 + Math.floor(Math.random() * 3)
+    const count = forcedCount ?? 4 + Math.floor(Math.random() * 3)
     for (let index = 0; index < count; index++) {
       const angle = Math.random() * Math.PI * 2, distance = Math.sqrt(Math.random()) * (activeObjective.radius + 5), position = activeObjective.position.clone().add(new THREE.Vector3(Math.cos(angle) * distance, .12, Math.sin(angle) * distance))
       const marker = new THREE.Mesh(new THREE.RingGeometry(.55, .72, 20), new THREE.MeshBasicMaterial({ color: team === 'enemy' ? 0xe2644f : 0x72a9d3, transparent: true, opacity: .58, side: THREE.DoubleSide, depthTest: false }))
@@ -1498,6 +1637,7 @@ export class Game {
     if (team === 'enemy') { this.status = `敌军炮击预警 · ${activeObjective.id} 点`; this.statusUntil = time + 2.4 }
   }
   private updateArtillery(time: number) {
+    if (this.operationOpeningActive(time) && !this.operationOpeningBarrage) return
     if (!this.nextArtilleryAt) this.nextArtilleryAt = time + 12 + Math.random() * 6
     if (time >= this.nextArtilleryAt) { this.scheduleArtillery(time); this.nextArtilleryAt = time + 22 + Math.random() * 14 }
     for (let index = this.artilleryShells.length - 1; index >= 0; index--) {
@@ -1598,7 +1738,7 @@ export class Game {
       player: [mapX(position.x), position.z, this.yaw],
       infantry,
       tanks: vehicles,
-      flags: this.objectives.map((point, index) => [point.id, mapX(point.position.x), point.position.z, point.owner, this.campaign.rule !== 'assault' || index === this.assaultIndex]),
+      flags: this.objectives.map((point, index) => [point.id, mapX(point.position.x), point.position.z, point.owner, this.campaign.rule !== 'assault' || this.activeAssaultIndices().includes(index)]),
       depots: this.depots.map(depot => [depot.id, mapX(depot.position.x), depot.position.z, depot.destroyed]),
     })
     if (time < this.scoreboardAt) return
@@ -1616,7 +1756,7 @@ export class Game {
     if (this.dead) return; const direction = new THREE.Vector3(); this.camera.getWorldDirection(direction); const distance = direction.y < -.05 ? Math.min(80, this.camera.position.y / -direction.y) : 55, width = this.battlefieldHalfWidth() - .7, depth = this.battlefieldHalfDepth(); this.squadTarget.copy(this.camera.position).addScaledVector(direction, distance); this.squadTarget.set(THREE.MathUtils.clamp(this.squadTarget.x, -width, width), 0, THREE.MathUtils.clamp(this.squadTarget.z, -depth, depth)); this.squadMode = 'move'; this.squadMarker.position.copy(this.squadTarget).setY(2.8); this.squadMarker.visible = true; this.status = '小队：向标记位置进攻'; this.statusUntil = performance.now() / 1000 + 1.8
   }
   private orderSquadFollow() {
-    if (this.dead) return; this.squadMode = 'follow'; this.squadMarker.visible = false; this.status = '小队：跟我走'; this.statusUntil = performance.now() / 1000 + 1.8
+    if (this.dead) return; this.squadMode = 'autonomous'; this.squadMarker.visible = false; this.status = '小队：恢复自主作战'; this.statusUntil = performance.now() / 1000 + 1.8
   }
   private playerDeathScene() {
     const token = ++this.deathSceneToken, startedAt = performance.now(), origin = this.camera.position.clone(), startRotation = this.camera.quaternion.clone(), source = this.lastDamageSource?.clone(), roll = (Math.random() < .5 ? -1 : 1) * (.42 + Math.random() * .28)
@@ -1665,7 +1805,7 @@ export class Game {
     if (this.particles.length >= this.fxPool.maxParticles) {
       const oldest = this.particles.shift()!
       if (oldest.pooled) this.fxPool.releaseParticle(this.scene, oldest as never)
-      else { this.scene.remove(oldest.mesh); oldest.mesh.geometry.dispose(); this.disposeMaterial(oldest.mesh.material as THREE.Material) }
+      else { this.scene.remove(oldest.mesh); (oldest.mesh as THREE.Mesh).geometry.dispose(); this.disposeMaterial(oldest.mesh.material as THREE.Material) }
     }
     const item = this.fxPool.acquireParticle(this.scene, position, velocity, color, size, life, gravity, grow, opacity)
     this.particles.push(item)
@@ -1728,7 +1868,7 @@ export class Game {
       if (particle.age >= particle.life) {
         this.particles.splice(i, 1)
         if (particle.pooled) this.fxPool.releaseParticle(this.scene, particle as never)
-        else { this.scene.remove(particle.mesh); particle.mesh.geometry.dispose(); this.disposeMaterial(particle.mesh.material as THREE.Material) }
+        else { this.scene.remove(particle.mesh); (particle.mesh as THREE.Mesh).geometry.dispose(); this.disposeMaterial(particle.mesh.material as THREE.Material) }
         continue
       }
       particle.velocity.y -= particle.gravity * dt
@@ -1831,7 +1971,7 @@ export class Game {
     const killed = tank.hp <= 0; if (playerOwned) this.events.hit(killed, false, Math.min(damage * multiplier, Math.max(0, tank.hp + damage * multiplier))); if (!killed) return; this.dismountTankDriver(tank, false, true); tank.alive = false; tank.respawnAt = performance.now() / 1000 + 20; this.tickets[tank.team === 'ally' ? 0 : 1] = Math.max(0, this.tickets[tank.team === 'ally' ? 0 : 1] - 5); tank.root.rotation.x += (Math.random() - .5) * .15; tank.root.rotation.z = tank.team === 'ally' ? .14 : -.14; tank.wreckCollider = this.wreckVehicle(tank.root, 1.45, 2.35); this.explosionFx(tank.root.position.clone().setY(1)); if (playerOwned && tank.team === 'enemy') { this.events.kill(++this.kills, tank.name); this.notePlayerKill() } if (this.playerTank === tank) { tank.playerDriven = false; this.playerTank = undefined; this.weapon.visible = true; this.events.vehicle(false, 0, false); this.hurtPlayer(999, tank.lastDamageSource ?? tank.root.position, tank.lastDamageCause ?? `${tank.name} · 车体爆炸`) }
   }
   private damageTransport(transport: Transport, damage: number, playerOwned: boolean) {
-    if (!transport.alive) return; transport.lastDamageAt = performance.now() / 1000; const dealt = Math.min(transport.hp, damage); transport.hp -= damage; const killed = transport.hp <= 0; if (playerOwned) this.events.hit(killed, false, dealt); if (!killed) return
+    if (!transport.alive) return; transport.lastDamageAt = performance.now() / 1000; const armoredDamage = damage < 40 ? Math.max(1, damage * .45) : damage * .85, dealt = Math.min(transport.hp, armoredDamage); transport.hp -= armoredDamage; const killed = transport.hp <= 0; if (playerOwned) this.events.hit(killed, false, dealt); if (!killed) return
     this.dismountTransportDriver(transport, true); transport.alive = false; transport.respawnAt = performance.now() / 1000 + 28; this.tickets[transport.team === 'ally' ? 0 : 1] = Math.max(0, this.tickets[transport.team === 'ally' ? 0 : 1] - 3); transport.root.rotation.x += (Math.random() - .5) * .12; transport.root.rotation.z = transport.team === 'ally' ? .22 : -.22; transport.wreckCollider = this.wreckVehicle(transport.root, 1.3, 2.55); this.explosionFx(transport.root.position.clone().setY(1)); if (playerOwned && transport.team === 'enemy') { this.events.kill(++this.kills, '日军运兵车'); this.notePlayerKill() } if (this.playerTransport === transport) { const passenger = this.playerTransportPassenger; transport.playerDriven = false; this.playerTransport = undefined; this.playerTransportPassenger = false; this.playerTransportSeat = -1; this.weapon.visible = true; this.events.vehicle(false, 0, false); this.events.loadout(this.activeLoadout()); this.camera.position.copy(transport.root.position).add(new THREE.Vector3(2.2, 1.72, 0).applyQuaternion(transport.root.quaternion)); this.hurtPlayer(passenger ? 85 : 999, transport.root.position) }
   }
   private damageEmplacement(emplacement: Emplacement, damage: number, playerOwned: boolean) {
@@ -1932,13 +2072,15 @@ export class Game {
     if (stage > building.damageStage) { building.damageStage = stage; building.body.rotation.z = (building.root.position.x < 0 ? -1 : 1) * stage * .006; building.details.forEach((detail, index) => { if (index % (stage === 1 ? 4 : 2) === 0) detail.visible = false }); const center = building.root.position.clone().setY(building.height * .55); for (let index = 0; index < 8 + stage * 3; index++) this.particle(center.clone().add(new THREE.Vector3((Math.random() - .5) * 5, (Math.random() - .5) * building.height * .7, (Math.random() - .5) * 7)), new THREE.Vector3((Math.random() - .5) * 2.5, .5 + Math.random() * 2, (Math.random() - .5) * 2.5), 0x62594d, .1 + Math.random() * .16, .9 + Math.random() * .7, 4) }
     if (building.hp > 0) return
     building.destroyed = true
-    const coverIndex = this.coverMeshes.indexOf(building.body); if (coverIndex >= 0) this.coverMeshes.splice(coverIndex, 1)
+    const bounds = building.colliders.reduce((area, collider) => ({ minX: Math.min(area.minX, collider.minX), maxX: Math.max(area.maxX, collider.maxX), minZ: Math.min(area.minZ, collider.minZ), maxZ: Math.max(area.maxZ, collider.maxZ) }), { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity })
     for (const collider of building.colliders) { const infantryIndex = this.colliders.indexOf(collider); if (infantryIndex >= 0) this.colliders.splice(infantryIndex, 1); const vehicleIndex = this.vehicleColliders.indexOf(collider); if (vehicleIndex >= 0) this.vehicleColliders.splice(vehicleIndex, 1) }
     if (building.ladder) { const index = this.ladders.indexOf(building.ladder); if (index >= 0) this.ladders.splice(index, 1); if (this.playerLadder === building.ladder) this.playerLadder = undefined }
     if (building.platform) { const index = this.platforms.indexOf(building.platform); if (index >= 0) this.platforms.splice(index, 1) }
-    building.details.forEach(detail => { detail.visible = false; if (detail instanceof THREE.Mesh) { const index = this.coverMeshes.indexOf(detail); if (index >= 0) this.coverMeshes.splice(index, 1) } })
-    building.body.position.y = .58; building.body.scale.y = .1; building.body.rotation.z = (Math.random() < .5 ? -1 : 1) * .035
-    for (let index = 0; index < 9; index++) { const rubble = this.box([.65 + Math.random() * 1.4, .28 + Math.random() * .48, .65 + Math.random() * 1.5], [(Math.random() - .5) * 7, .15 + Math.random() * .25, (Math.random() - .5) * 8], index % 4 ? 0x5d554b : 0x373632, building.root); rubble.rotation.set(Math.random() * .3, Math.random() * Math.PI, Math.random() * .3); building.rubble.push(rubble); this.coverMeshes.push(rubble) }
+    building.details.forEach((detail, index) => { const remains = index % 5 === 1 || index % 7 === 0; detail.visible = remains; if (detail instanceof THREE.Mesh && !remains) { const coverIndex = this.coverMeshes.indexOf(detail); if (coverIndex >= 0) this.coverMeshes.splice(coverIndex, 1) } })
+    building.body.position.y = Math.max(1.25, building.height * .2); building.body.scale.y = .34; building.body.rotation.z = (Math.random() < .5 ? -1 : 1) * .075
+    for (let index = 0; index < 18; index++) { const edge = index % 3 ? 1 : .45, rubble = this.box([.65 + Math.random() * 1.8, .3 + Math.random() * .75, .65 + Math.random() * 1.8], [(Math.random() - .5) * 8 * edge, .18 + Math.random() * .42, (Math.random() - .5) * 9 * edge], index % 4 ? 0x5d554b : 0x373632, building.root); rubble.rotation.set(Math.random() * .35, Math.random() * Math.PI, Math.random() * .35); building.rubble.push(rubble); this.coverMeshes.push(rubble) }
+    if (Number.isFinite(bounds.minX)) { const centerX = (bounds.minX + bounds.maxX) / 2, centerZ = (bounds.minZ + bounds.maxZ) / 2, halfX = (bounds.maxX - bounds.minX) * .28, halfZ = (bounds.maxZ - bounds.minZ) * .3, ruinCollider = { minX: centerX - halfX, maxX: centerX + halfX, minZ: centerZ - halfZ, maxZ: centerZ + halfZ }; this.colliders.push(ruinCollider); this.vehicleColliders.push(ruinCollider); building.colliders = [ruinCollider] }
+    this.markCollidersDirty()
     const center = building.root.position.clone().setY(2)
     for (let index = 0; index < 24; index++) { const debris = new THREE.Mesh(new THREE.BoxGeometry(.25 + Math.random() * .8, .18 + Math.random() * .5, .25 + Math.random() * .8), this.mat(index % 4 ? 0x60584d : 0x393734)); debris.position.copy(center).add(new THREE.Vector3((Math.random() - .5) * 5, Math.random() * 4, (Math.random() - .5) * 7)); debris.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI); this.scene.add(debris); this.particles.push({ mesh: debris, velocity: new THREE.Vector3((Math.random() - .5) * 6, 2 + Math.random() * 7, (Math.random() - .5) * 6), age: 0, life: 4 + Math.random() * 2, gravity: 8, grow: 0 }) }
     this.explosionFx(center)
@@ -1947,21 +2089,39 @@ export class Game {
   private finish(winner: Team) { if (this.matchOver) return; this.matchOver = true; this.active = false; document.exitPointerLock(); this.events.end(winner === 'ally', this.kills, this.deaths, this.kills * 100 + this.objectiveScore) }
   private reinforceTank(tank: Tank, time: number) {
     this.dismountTankDriver(tank); this.restoreVehicle(tank.root, tank.wreckCollider); tank.wreckCollider = undefined; const index = this.tanks.filter(candidate => candidate.team === tank.team).indexOf(tank), laneX = (index - 1) * 3.6; tank.nextSmoke = time; tank.lastDamageAt = -99; tank.ramSlowUntil = 0; tank.stalledFor = 0; tank.reverseUntil = 0
-    const spawnZ = tank.team === 'ally' ? 50 : -50; tank.alive = true; tank.playerDriven = false; tank.hp = tank.maxHp; tank.tracks = 100; tank.engine = 100; tank.turretHealth = 100; tank.crew = tank.crewCapacity; tank.nextShot = time + 3 + Math.random() * 3; tank.nextMg = time + 1; tank.mgBurst = 0; tank.mgPauseUntil = 0; tank.root.visible = true; tank.root.rotation.set(0, tank.team === 'ally' ? 0 : Math.PI, 0); tank.recoilToken++; tank.barrel.position.z = -2.15; tank.turret.position.z = 0; tank.turret.rotation.set(0, 0, 0); tank.pitch.rotation.set(0, 0, 0); tank.root.position.set(laneX, this.terrainHeight(laneX, spawnZ), spawnZ)
+    const spawnInset = this.isSonghuOperation() ? 22 : 8, spawnZ = (tank.team === 'ally' ? 1 : -1) * (this.mapBounds.halfDepth - spawnInset); tank.alive = true; tank.playerDriven = false; tank.hp = tank.maxHp; tank.tracks = 100; tank.engine = 100; tank.turretHealth = 100; tank.crew = tank.crewCapacity; tank.nextShot = time + 3 + Math.random() * 3; tank.nextMg = time + 1; tank.mgBurst = 0; tank.mgPauseUntil = 0; tank.root.visible = true; tank.root.rotation.set(0, tank.team === 'ally' ? 0 : Math.PI, 0); tank.recoilToken++; tank.barrel.position.z = -2.15; tank.turret.position.z = 0; tank.turret.rotation.set(0, 0, 0); tank.pitch.rotation.set(0, 0, 0); tank.root.position.set(laneX, this.terrainHeight(laneX, spawnZ), spawnZ); this.vehicleNavigation.delete(tank.root)
     for (const crew of tank.crewMen) { crew.alive = true; crew.hp = 65; crew.respawnAt = 0; if (crew.mesh) crew.mesh.visible = true }
   }
   private reinforceTransport(transport: Transport, time: number) {
     this.dismountTransportDriver(transport); this.restoreVehicle(transport.root, transport.wreckCollider); transport.wreckCollider = undefined; transport.mission = 'pickup'; transport.waitUntil = time + 10; transport.nextDrop = time; transport.stalledFor = 0; transport.reverseUntil = 0; transport.nextSmoke = time; transport.lastDamageAt = -99
-    const spawnX = transport.team === 'ally' ? 5 : -5, spawnZ = transport.team === 'ally' ? 54 : -54; transport.alive = true; transport.playerDriven = false; transport.hp = transport.maxHp; transport.root.visible = true; transport.root.rotation.set(0, transport.team === 'ally' ? Math.PI : 0, 0); transport.root.position.set(spawnX, this.terrainHeight(spawnX, spawnZ), spawnZ)
+    const spawnX = transport.team === 'ally' ? 5 : -5, spawnZ = (transport.team === 'ally' ? 1 : -1) * (this.mapBounds.halfDepth - 4); transport.alive = true; transport.playerDriven = false; transport.hp = transport.maxHp; transport.root.visible = true; transport.root.rotation.set(0, transport.team === 'ally' ? Math.PI : 0, 0); transport.root.position.set(spawnX, this.terrainHeight(spawnX, spawnZ), spawnZ)
   }
   private reinforcePlane(plane: Plane, time: number) { const index = this.planes.filter(candidate => candidate.team === plane.team).indexOf(plane); plane.alive = true; plane.playerDriven = false; plane.abandoned = false; plane.hp = plane.maxHp; plane.speed = 30; plane.throttle = .8; plane.stallWarned = false; plane.bombs = plane.maxBombs; plane.nextBomb = time; plane.bombRearmAt = 0; plane.root.visible = true; plane.angle = (plane.team === 'ally' ? 0 : Math.PI / 2) + index * Math.PI; plane.nextAttack = time + 5 + Math.random() * 5; plane.nextShot = time; plane.root.rotation.set(0, 0, 0); this.seatPlanePilot(plane) }
   private spawnIsSafe(position: THREE.Vector3, team: Team) {
     const now = performance.now() / 1000, enemiesClose = this.bots.some(bot => bot.alive && !bot.piloting && !bot.chuting && bot.team !== team && bot.root.position.distanceToSquared(position) < 16 ** 2), recentDeaths = this.deathHeat.filter(item => item.team === team && now - item.at < 25 && item.position.distanceToSquared(position) < 24 ** 2).length
     return !enemiesClose && recentDeaths < 3
   }
+  private objectiveDeployable(objective: Objective, team: Team) {
+    if (objective.owner !== team || objective.capturing || !this.spawnIsSafe(objective.position, team)) return false
+    if (this.bots.some(bot => bot.alive && !bot.piloting && !bot.chuting && bot.team !== team && bot.root.position.distanceToSquared(objective.position) < objective.radius ** 2)) return false
+    return !this.tanks.some(tank => tank.alive && tank.team !== team && tank.root.position.distanceToSquared(objective.position) < objective.radius ** 2) && !this.transports.some(transport => transport.alive && transport.team !== team && transport.root.position.distanceToSquared(objective.position) < objective.radius ** 2)
+  }
+  private randomDeploymentPosition(center: THREE.Vector3, radius: number) {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const angle = Math.random() * Math.PI * 2, distance = Math.sqrt(Math.random()) * Math.max(1.5, radius * .78), candidate = this.openPlacement(center.x + Math.cos(angle) * distance, center.z + Math.sin(angle) * distance, .42)
+      if (this.spawnIsSafe(candidate, 'ally')) return candidate
+    }
+    return this.openPlacement(center.x, center.z, .42)
+  }
+  private vehicleDeployable(root: THREE.Object3D, team: Team, lastDamageAt: number) {
+    const now = performance.now() / 1000
+    if (now - lastDamageAt < 8) return false
+    if (this.bots.some(bot => bot.alive && bot.team !== team && !bot.piloting && !bot.chuting && bot.root.position.distanceToSquared(root.position) < 24 ** 2)) return false
+    return !this.tanks.some(tank => tank.alive && tank.team !== team && tank.root.position.distanceToSquared(root.position) < 32 ** 2) && !this.transports.some(transport => transport.alive && transport.team !== team && transport.root.position.distanceToSquared(root.position) < 28 ** 2)
+  }
   private reinforcementSpawn(team: Team, index: number) {
     const enemies = this.bots.filter(bot => bot.alive && bot.team !== team), now = performance.now() / 1000
-    const base = new THREE.Vector3(0, 0, team === 'ally' ? 48 : -48), frontline = this.campaign.rule === 'assault' ? this.objectives[Math.min(this.assaultIndex, this.objectives.length - 1)]?.position : this.objectives.filter(point => point.owner !== team).sort((a, b) => base.distanceToSquared(a.position) - base.distanceToSquared(b.position))[0]?.position
+    const baseZ = this.mapBounds.halfDepth - 10, base = new THREE.Vector3(0, 0, team === 'ally' ? baseZ : -baseZ), frontline = this.campaign.rule === 'assault' ? this.pendingAssaultObjectives().sort((a, b) => base.distanceToSquared(a.position) - base.distanceToSquared(b.position))[0]?.position : this.objectives.filter(point => point.owner !== team).sort((a, b) => base.distanceToSquared(a.position) - base.distanceToSquared(b.position))[0]?.position
     const candidates = [base, ...this.objectives.filter(point => point.owner === team).map(point => point.position)].map(position => {
       const enemyDistances = enemies.map(enemy => enemy.root.position.distanceTo(position)), nearest = Math.min(...enemyDistances, 999), nearby = enemyDistances.filter(distance => distance < 45).length, heat = this.deathHeat.filter(item => item.team === team && now - item.at < 25 && item.position.distanceTo(position) < 24).length
       return { position, score: Math.random() * 25 - (frontline?.distanceTo(position) ?? 0) * .85 - nearby * 16 - heat * 32 - (nearest < 16 ? 280 : nearest < 30 ? 100 : 0) + (position === base ? 14 : 0) }
@@ -1969,7 +2129,7 @@ export class Game {
     const safe = candidates.sort((a, b) => b.score - a.score)[0]?.position
     const lane = index % 6, row = Math.floor(index / 6), direction = team === 'ally' ? 1 : -1
     if (safe) return new THREE.Vector3(safe.x + (lane - 2.5) * 1.15, 0, safe.z + direction * (3 + row * 1.8))
-    return new THREE.Vector3(-5.5 + lane * 2.2, 0, direction * (48 + row * 2.4))
+    return new THREE.Vector3(-5.5 + lane * 2.2, 0, direction * (baseZ + row * 2.4))
   }
   private reinforce(bot: Bot, time: number) {
     this.corpses = this.corpses.filter(corpse => corpse.bot !== bot)
@@ -1988,7 +2148,7 @@ export class Game {
     bot.alive = true; bot.hp = 100; bot.chuting = false; bot.root.visible = true; bot.body.layers.enable(0); bot.head.layers.enable(0); if (bot.squadTag) bot.squadTag.visible = true; bot.mag = this.botWeapon(bot.role, bot.team).magazine; bot.reloadUntil = 0; bot.bandages = 1; bot.bandageUntil = 0; bot.coverTarget = undefined; bot.coverUntil = 0; bot.nextCoverAt = time + 2; bot.reviveTarget = undefined; bot.reviveUntil = 0; bot.reviver = undefined; bot.lastSeen = undefined; bot.lastSeenUntil = 0; bot.shotAt = -10; bot.meleeAt = -10; bot.nextMelee = time + 1; bot.throwAt = -10; bot.grenades = 1; bot.antiTankGrenades = bot.role === 'support' ? 2 : botLoadout?.antiTankGrenades ?? 0; bot.smokes = 1; bot.suppression = 0; bot.nextWireDamage = 0; bot.smokeAt = time + 12 + Math.random() * 10; bot.nextAidAt = time + 7 + Math.random() * 5; bot.reviveAt = 0; bot.respawnAt = 0; bot.nextGrenade = time + 7 + Math.random() * 10; bot.nextShot = time + 1 + Math.random() * 2; bot.strafe *= -1
     bot.stuckFor = 0; bot.navPath = undefined; bot.navTarget = undefined; bot.navRefreshAt = 0; bot.vaultFrom = undefined; bot.vaultTo = undefined; bot.vaultStartedAt = undefined; bot.vaultUntil = undefined
     bot.pose = 'stand'; bot.root.rotation.set(0, bot.team === 'ally' ? Math.PI : 0, 0); bot.root.scale.set(1, 1, 1); bot.torso.position.y = 0; bot.torso.rotation.x = 0; bot.head.rotation.set(0, 0, 0); bot.body.rotation.set(0, 0, 0); bot.legs.forEach(leg => leg.rotation.set(0, 0, 0)); bot.arms.forEach(arm => arm.rotation.set(-.9, 0, 0))
-    const index = this.bots.filter(candidate => candidate.team === bot.team).indexOf(bot), lane = index % 6, transport = this.transports.find(candidate => candidate.team === bot.team && candidate.alive), spawn = this.reinforcementSpawn(bot.team, index)
+    const index = this.bots.filter(candidate => candidate.team === bot.team).indexOf(bot), lane = index % 6, transport = this.transports.find(candidate => candidate.team === bot.team && candidate.alive && this.vehicleDeployable(candidate.root, candidate.team, candidate.lastDamageAt)), spawn = this.reinforcementSpawn(bot.team, index)
     bot.riding = transport && Math.abs(transport.root.position.z) >= 43 && !(this.playerTransport === transport && this.playerTransportPassenger) && this.bots.filter(candidate => candidate.riding === transport).length < 6 ? transport : undefined
     if (transport && Math.abs(transport.root.position.z) < 43) { const x = transport.root.position.x + (lane % 3 - 1) * .8, z = transport.root.position.z + (bot.team === 'ally' ? 2.8 : -2.8) + Math.floor(lane / 3) * (bot.team === 'ally' ? .8 : -.8); bot.root.position.set(x, this.terrainHeight(x, z), z) }
     else { bot.root.position.copy(spawn); bot.root.position.y = this.terrainHeight(spawn.x, spawn.z) }
@@ -2061,7 +2221,10 @@ export class Game {
     return positions.sort((a, b) => bot.root.position.distanceToSquared(a) - bot.root.position.distanceToSquared(b))[0]
   }
   private botCanSee(bot: Bot, position: THREE.Vector3) {
-    const start = this.tmpV3A.set(bot.root.position.x, bot.root.position.y + 1.58, bot.root.position.z)
+    return this.positionCanSee(bot.root.position, position)
+  }
+  private positionCanSee(observer: THREE.Vector3, position: THREE.Vector3) {
+    const start = this.tmpV3A.set(observer.x, observer.y + 1.58, observer.z)
     const direction = this.tmpV3B.set(position.x - start.x, position.y - start.y, position.z - start.z)
     const distance = direction.length()
     if (distance < .1 || this.smokeBlocks(start, position)) return false
@@ -2079,11 +2242,16 @@ export class Game {
     let best: THREE.Vector3 | undefined, bestScore = Infinity
     for (const box of this.colliders) {
       const center = new THREE.Vector2((box.minX + box.maxX) / 2, (box.minZ + box.maxZ) / 2), fromThreat = center.clone().sub(new THREE.Vector2(threat.x, threat.z)); if (fromThreat.lengthSq() < .01) continue; fromThreat.normalize()
-      const halfX = (box.maxX - box.minX) / 2, halfZ = (box.maxZ - box.minZ) / 2, clearance = Math.abs(fromThreat.x) * halfX + Math.abs(fromThreat.y) * halfZ + .62, candidate = new THREE.Vector3(center.x + fromThreat.x * clearance, 0, center.y + fromThreat.y * clearance), travel = bot.root.position.distanceTo(candidate)
-      if (travel < 1.1 || travel > 16 || Math.abs(candidate.x) > this.battlefieldHalfWidth() - .5 || Math.abs(candidate.z) > this.battlefieldHalfDepth() - 1) continue
-      if (this.colliders.some(other => other !== box && candidate.x > other.minX - .3 && candidate.x < other.maxX + .3 && candidate.z > other.minZ - .3 && candidate.z < other.maxZ + .3)) continue
-      const exposure = threat.distanceTo(candidate), score = travel - Math.min(exposure, 24) * .08
-      if (score < bestScore) { bestScore = score; best = candidate }
+      const halfX = (box.maxX - box.minX) / 2, halfZ = (box.maxZ - box.minZ) / 2, clearance = Math.abs(fromThreat.x) * halfX + Math.abs(fromThreat.y) * halfZ + .58, tangent = new THREE.Vector2(-fromThreat.y, fromThreat.x), shoulder = Math.min(1.15, Math.max(halfX, halfZ) * .58)
+      for (const side of [-1, 0, 1]) {
+        const candidate = new THREE.Vector3(center.x + fromThreat.x * clearance + tangent.x * shoulder * side, 0, center.y + fromThreat.y * clearance + tangent.y * shoulder * side), travel = bot.root.position.distanceTo(candidate)
+        if (travel < 1.1 || travel > 21 || Math.abs(candidate.x) > this.battlefieldHalfWidth() - .5 || Math.abs(candidate.z) > this.battlefieldHalfDepth() - 1) continue
+        if (bot.inSquad && !this.dead && candidate.distanceToSquared(this.camera.position) > 12 ** 2) continue
+        if (this.colliders.some(other => other !== box && candidate.x > other.minX - .3 && candidate.x < other.maxX + .3 && candidate.z > other.minZ - .3 && candidate.z < other.maxZ + .3)) continue
+        if (this.bots.some(other => other !== bot && other.alive && other.team === bot.team && (other.coverTarget?.distanceToSquared(candidate) ?? other.root.position.distanceToSquared(candidate)) < 2.2 ** 2)) continue
+        candidate.y = this.terrainHeight(candidate.x, candidate.z); const firingLane = side && this.positionCanSee(candidate, threat) ? -1.1 : 0, score = travel - Math.min(threat.distanceTo(candidate), 24) * .08 + Math.abs(side) * -.35 + firingLane
+        if (score < bestScore) { bestScore = score; best = candidate }
+      }
     }
     return best
   }
@@ -2097,7 +2265,7 @@ export class Game {
     }
     if (!target) return false
     const dx = target.root.position.x - bot.root.position.x, dz = target.root.position.z - bot.root.position.z, distance = Math.hypot(dx, dz); bot.root.rotation.y = Math.atan2(dx, dz) + Math.PI; bot.muzzle.visible = false
-    if (distance > 1.35) { if (bot.smokes && bot.suppression > .65 && time >= bot.smokeAt) this.throwNpcSmoke(bot, target.root.position, time); this.moveBot(bot, dx, dz, 3.15 * (1 - Math.min(.4, bot.suppression * .22)), dt); this.poseBot(bot, 'stand', dt, Math.sin(time * 8.5 + bot.phase) * .68); bot.weapon.rotation.z = .35; return true }
+    if (distance > 1.35) { if (bot.smokes && bot.suppression > .65 && time >= bot.smokeAt) this.throwNpcSmoke(bot, target.root.position, time); this.moveBot(bot, dx, dz, 5.45 * (1 - Math.min(.4, bot.suppression * .22)), dt); this.poseBot(bot, 'stand', dt, Math.sin(time * 11.5 + bot.phase) * .68); bot.weapon.rotation.z = .35; return true }
     if (!bot.reviveUntil) bot.reviveUntil = time + 1.65
     const progress = 1 - (bot.reviveUntil - time) / 1.65, motion = Math.sin(THREE.MathUtils.clamp(progress, 0, 1) * Math.PI * 4); this.poseBot(bot, 'crouch', dt); bot.weapon.position.set(-.2, -.38, .08); bot.weapon.rotation.z = -.7; bot.arms[0].rotation.x = -.3 + motion * .18; bot.arms[1].rotation.x = -.45 - motion * .18
     if (time < bot.reviveUntil) return true
@@ -2105,6 +2273,7 @@ export class Game {
     return true
   }
   private updateBots(dt: number, time: number) {
+    this.recastNavigation.update(dt)
     for (const team of ['ally', 'enemy'] as const) {
       if (!this.reinforcementWaveAt[team]) this.reinforcementWaveAt[team] = time + 6
       if (time < this.reinforcementWaveAt[team]) continue
@@ -2124,7 +2293,8 @@ export class Game {
     for (const bot of this.bots) {
       if (!bot.alive) continue
       if (bot.chuting) continue
-      if (this.dead && bot === this.playerReviver) { const dx = this.camera.position.x - bot.root.position.x, dz = this.camera.position.z - bot.root.position.z, distance = Math.hypot(dx, dz); bot.root.rotation.y = Math.atan2(dx, dz) + Math.PI; if (distance > 1.45) { this.moveBot(bot, dx, dz, 3.35, dt); this.poseBot(bot, 'stand', dt, Math.sin(time * 9 + bot.phase) * .7) } else { this.poseBot(bot, 'crouch', dt); bot.weapon.position.y = -.35; bot.weapon.rotation.z = -.65 } continue }
+      if (this.operationOpeningActive(time)) { bot.nextShot = Math.max(bot.nextShot, this.operationOpeningUntil); bot.nextGrenade = Math.max(bot.nextGrenade, this.operationOpeningUntil); if (bot.team === 'enemy') { this.poseBot(bot, 'stand', dt); continue } }
+      if (this.dead && bot === this.playerReviver) { const dx = this.camera.position.x - bot.root.position.x, dz = this.camera.position.z - bot.root.position.z, distance = Math.hypot(dx, dz); bot.root.rotation.y = Math.atan2(dx, dz) + Math.PI; if (distance > 1.45) { this.moveBot(bot, dx, dz, 4.7, dt); this.poseBot(bot, 'stand', dt, Math.sin(time * 10.5 + bot.phase) * .7) } else { this.poseBot(bot, 'crouch', dt); bot.weapon.position.y = -.35; bot.weapon.rotation.z = -.65 } continue }
       if (this.updateBotVault(bot, time)) continue
       const weapon = this.botWeapon(bot.role, bot.team)
       if (bot.piloting) {
@@ -2135,12 +2305,12 @@ export class Game {
       if (bot.drivingTank) {
         const tank = bot.drivingTank
         if (!tank.alive || tank.playerDriven || tank.driver !== bot) { if (tank.driver === bot) tank.driver = undefined; bot.drivingTank = undefined; bot.root.visible = true; bot.body.layers.enable(0); bot.head.layers.enable(0) }
-        else { const dx = tank.root.position.x - bot.root.position.x, dz = tank.root.position.z - bot.root.position.z, distance = Math.hypot(dx, dz); if (distance > 1.45) { bot.root.visible = true; bot.body.layers.enable(0); bot.head.layers.enable(0); this.moveBot(bot, dx, dz, 3, dt); bot.root.rotation.y = Math.atan2(dx, dz) + Math.PI; this.poseBot(bot, 'stand', dt, Math.sin(time * 9 + bot.phase) * .72); bot.weapon.visible = true } else { bot.root.position.copy(tank.root.position); bot.root.visible = false; bot.body.layers.disable(0); bot.head.layers.disable(0) } continue }
+        else { const dx = tank.root.position.x - bot.root.position.x, dz = tank.root.position.z - bot.root.position.z, distance = Math.hypot(dx, dz); if (distance > 1.45) { bot.root.visible = true; bot.body.layers.enable(0); bot.head.layers.enable(0); this.moveBot(bot, dx, dz, 4.3, dt); bot.root.rotation.y = Math.atan2(dx, dz) + Math.PI; this.poseBot(bot, 'stand', dt, Math.sin(time * 10.5 + bot.phase) * .72); bot.weapon.visible = true } else { bot.root.position.copy(tank.root.position); bot.root.visible = false; bot.body.layers.disable(0); bot.head.layers.disable(0) } continue }
       }
       if (bot.drivingTransport) {
         const transport = bot.drivingTransport
         if (!transport.alive || transport.playerDriven || transport.driver !== bot) { if (transport.driver === bot) transport.driver = undefined; bot.drivingTransport = undefined; bot.root.visible = true; bot.body.layers.enable(0); bot.head.layers.enable(0) }
-        else { const dx = transport.root.position.x - bot.root.position.x, dz = transport.root.position.z - bot.root.position.z, distance = Math.hypot(dx, dz); if (distance > 1.4) { bot.root.visible = true; bot.body.layers.enable(0); bot.head.layers.enable(0); this.moveBot(bot, dx, dz, 3, dt); bot.root.rotation.y = Math.atan2(dx, dz) + Math.PI; this.poseBot(bot, 'stand', dt, Math.sin(time * 9 + bot.phase) * .72); bot.weapon.visible = true } else { bot.root.position.copy(transport.root.position); bot.root.visible = false; bot.body.layers.disable(0); bot.head.layers.disable(0) } continue }
+        else { const dx = transport.root.position.x - bot.root.position.x, dz = transport.root.position.z - bot.root.position.z, distance = Math.hypot(dx, dz); if (distance > 1.4) { bot.root.visible = true; bot.body.layers.enable(0); bot.head.layers.enable(0); this.moveBot(bot, dx, dz, 4.3, dt); bot.root.rotation.y = Math.atan2(dx, dz) + Math.PI; this.poseBot(bot, 'stand', dt, Math.sin(time * 10.5 + bot.phase) * .72); bot.weapon.visible = true } else { bot.root.position.copy(transport.root.position); bot.root.visible = false; bot.body.layers.disable(0); bot.head.layers.disable(0) } continue }
       }
       if (bot.emplacement) {
         const gun = bot.emplacement
@@ -2154,7 +2324,7 @@ export class Game {
       }
       if (bot.machineGun) {
         const machineGun = bot.machineGun
-        if (machineGun.occupied || machineGun.operator !== bot || !machineGun.ammo) { if (machineGun.operator === bot) machineGun.operator = undefined; bot.machineGun = undefined }
+        if (machineGun.occupied || machineGun.operator !== bot) { if (machineGun.operator === bot) machineGun.operator = undefined; bot.machineGun = undefined }
         else {
           const seat = machineGun.position.clone().add(new THREE.Vector3(0, 0, .78).applyQuaternion(machineGun.root.quaternion)), dx = seat.x - bot.root.position.x, dz = seat.z - bot.root.position.z, distance = Math.hypot(dx, dz)
           if (distance > .7) { this.moveBot(bot, dx, dz, 2.7, dt); bot.root.rotation.y = Math.atan2(dx, dz) + Math.PI; this.poseBot(bot, 'stand', dt, Math.sin(time * 8 + bot.phase) * .62); bot.weapon.visible = true; continue }
@@ -2174,13 +2344,14 @@ export class Game {
       }
       bot.suppression = Math.max(0, bot.suppression - dt * .28)
       if (this.updateMedicRescue(bot, dt, time)) continue
-      const threat = this.botThreat(bot), needsCover = bot.suppression > .78 || bot.hp < 52 || bot.mag <= Math.ceil(weapon.magazine * .35) || Boolean(bot.reloadUntil)
-      if (!bot.coverTarget && threat && needsCover && time >= bot.nextCoverAt) { bot.coverTarget = this.findBotCover(bot, threat); bot.coverUntil = bot.coverTarget ? time + 4.5 + Math.random() * 2.5 : 0; bot.nextCoverAt = time + 7 + Math.random() * 3 }
+      const threat = this.botThreat(bot), nearestAssaultObjective = this.campaign.rule === 'assault' ? this.pendingAssaultObjectives().sort((a, b) => bot.root.position.distanceToSquared(a.position) - bot.root.position.distanceToSquared(b.position))[0] : undefined, nearObjective = !nearestAssaultObjective || bot.root.position.distanceToSquared(nearestAssaultObjective.position) < (nearestAssaultObjective.radius + 7) ** 2, engagementRange = nearObjective ? Math.min(weapon.range, 46) : 11, engaged = Boolean(threat && bot.root.position.distanceToSquared(threat) < engagementRange ** 2), assaultSlot = Math.max(0, (bot.team === 'ally' ? allies : enemies).indexOf(bot)), mustAdvance = Boolean(nearestAssaultObjective && bot.team === this.assaultAttacker() && assaultSlot % 3 !== 2 && bot.root.position.distanceToSquared(nearestAssaultObjective.position) > (nearestAssaultObjective.radius * .82) ** 2), needsCover = !mustAdvance && (engaged || bot.suppression > .5 || bot.hp < 68 || bot.mag <= Math.ceil(weapon.magazine * .35) || Boolean(bot.reloadUntil))
+      if (mustAdvance && bot.coverTarget) { bot.coverTarget = undefined; bot.coverUntil = 0 }
+      if (!bot.coverTarget && threat && needsCover && time >= bot.nextCoverAt) { bot.coverTarget = this.findBotCover(bot, threat); bot.coverUntil = bot.coverTarget ? time + 3 + Math.random() * 2.5 : 0; bot.nextCoverAt = time + 3.5 + Math.random() * 2 }
       if (bot.coverTarget && time >= bot.coverUntil) bot.coverTarget = undefined
       let holdingCover = false
       if (bot.coverTarget) {
         const dx = bot.coverTarget.x - bot.root.position.x, dz = bot.coverTarget.z - bot.root.position.z, distance = Math.hypot(dx, dz)
-        if (distance > .72) { this.moveBot(bot, dx, dz, 2.7 * (1 - Math.min(.35, bot.suppression * .18)), dt); bot.root.rotation.y = Math.atan2(dx, dz) + Math.PI; const step = Math.sin(time * 9 + bot.phase) * .72; this.poseBot(bot, 'stand', dt, step); bot.root.position.y = this.terrainHeight(bot.root.position.x, bot.root.position.z) + Math.abs(step) * .035; bot.weapon.rotation.z = .18; bot.muzzle.visible = false; continue }
+        if (distance > .72) { this.moveBot(bot, dx, dz, 5.75 * (1 - Math.min(.35, bot.suppression * .18)), dt); bot.root.rotation.y = Math.atan2(dx, dz) + Math.PI; const step = Math.sin(time * 12 + bot.phase) * .72; this.poseBot(bot, 'stand', dt, step); bot.root.position.y = this.terrainHeight(bot.root.position.x, bot.root.position.z) + Math.abs(step) * .035; bot.weapon.rotation.z = .18; bot.muzzle.visible = false; continue }
         holdingCover = true; bot.root.position.y = this.terrainHeight(bot.root.position.x, bot.root.position.z); if (!bot.reloadUntil && bot.mag <= Math.ceil(weapon.magazine * .35)) { bot.mag = 0; bot.reloadUntil = time + weapon.reload * (.95 + Math.random() * .15) }
       }
       if (bot.bandageUntil) {
@@ -2223,26 +2394,39 @@ export class Game {
           if (this.botCanSee(bot, aim)) { best = d; targetBot = undefined; targetTransport = candidate; targetPos = candidate.root.position; targetingPlayer = false }
         }
       }
-      if (targetBot || targetTransport || targetingPlayer) { bot.lastSeen = targetPos.clone(); bot.lastSeenUntil = time + 4.2 }
-      let desiredDistance = weapon.distance
-      if (!targetBot && !targetTransport && !targetingPlayer) {
-        if (bot.inSquad && !this.dead) { targetBot = undefined; targetTransport = undefined; targetingPlayer = false; targetPos = this.squadMode === 'follow' ? player : this.squadTarget; desiredDistance = this.squadMode === 'follow' ? 8 : 6 }
-        else if (bot.lastSeen && time < bot.lastSeenUntil) { targetPos = bot.lastSeen; desiredDistance = 1.2 }
-        else { bot.lastSeen = undefined; targetDepot = this.campaign.rule === 'demolition' && bot.team === this.campaign.attacker ? this.depots.filter(depot => !depot.destroyed).sort((a, b) => bot.root.position.distanceToSquared(a.position) - bot.root.position.distanceToSquared(b.position))[0] : undefined; const strategic = this.campaign.rule === 'assault' ? this.objectives[this.assaultIndex] : this.objectives.filter(o => o.owner !== bot.team).sort((a, b) => bot.root.position.distanceToSquared(a.position) - bot.root.position.distanceToSquared(b.position))[0]; if (targetDepot) { targetBot = undefined; targetTransport = undefined; targetPos = targetDepot.position; targetingPlayer = false } else if (strategic) { targetBot = undefined; targetTransport = undefined; targetPos = strategic.position; targetingPlayer = false } }
+      const assaultObjectives = this.campaign.rule === 'assault' ? this.pendingAssaultObjectives() : []
+      const teamRoster = bot.team === 'ally' ? allies : enemies, teamSlot = Math.max(0, teamRoster.indexOf(bot))
+      const assignedObjective = assaultObjectives.length ? assaultObjectives[teamSlot % assaultObjectives.length] : undefined
+      let objectiveAdvance = false
+      if (!bot.inSquad && assignedObjective && best > 11 ** 2) {
+        const formationSlot = Math.floor(teamSlot / assaultObjectives.length), ring = Math.floor(formationSlot / 8), attacker = bot.team === this.assaultAttacker(), angle = formationSlot % 8 / 8 * Math.PI * 2 + (attacker ? 0 : Math.PI / 8), radiusScale = attacker ? ring % 2 ? .72 : .42 : ring % 2 ? .88 : .64, anchorRadius = Math.max(2.4, assignedObjective.radius * radiusScale), approachDistance = bot.root.position.distanceTo(assignedObjective.position)
+        const anchor = assignedObjective.position.clone().add(new THREE.Vector3(Math.cos(angle) * anchorRadius, 0, Math.sin(angle) * anchorRadius))
+        if (this.isSonghuOperation() && approachDistance > 22) anchor.copy(this.songhuTacticalAnchor(bot, assignedObjective, formationSlot, anchor))
+        targetBot = undefined; targetTransport = undefined; targetingPlayer = false; targetPos = anchor; objectiveAdvance = true
       }
-      const dx = targetPos.x - bot.root.position.x, dz = targetPos.z - bot.root.position.z, distance = Math.hypot(dx, dz), moving = !holdingCover && distance > desiredDistance, prone = bot.suppression > 1.28 && !bot.coverTarget && !bot.riding
+      if (targetBot || targetTransport || targetingPlayer) { bot.lastSeen = targetPos.clone(); bot.lastSeenUntil = time + 4.2 }
+      let desiredDistance = objectiveAdvance ? .75 : weapon.distance
+      if (!targetBot && !targetTransport && !targetingPlayer && !objectiveAdvance) {
+        if (bot.inSquad && this.squadMode === 'move') { targetBot = undefined; targetTransport = undefined; targetingPlayer = false; targetPos = this.squadTarget; desiredDistance = 6 }
+        else if (bot.lastSeen && time < bot.lastSeenUntil) { targetPos = bot.lastSeen; desiredDistance = 1.2 }
+        else { bot.lastSeen = undefined; targetDepot = this.campaign.rule === 'demolition' && bot.team === this.campaign.attacker ? this.depots.filter(depot => !depot.destroyed).sort((a, b) => bot.root.position.distanceToSquared(a.position) - bot.root.position.distanceToSquared(b.position))[0] : undefined; const strategic = this.campaign.rule === 'assault' ? this.pendingAssaultObjectives().sort((a, b) => bot.root.position.distanceToSquared(a.position) - bot.root.position.distanceToSquared(b.position))[0] : this.objectives.filter(o => o.owner !== bot.team).sort((a, b) => bot.root.position.distanceToSquared(a.position) - bot.root.position.distanceToSquared(b.position))[0]; if (targetDepot) { targetBot = undefined; targetTransport = undefined; targetPos = targetDepot.position; targetingPlayer = false } else if (strategic) { targetBot = undefined; targetTransport = undefined; targetPos = strategic.position; targetingPlayer = false } }
+      }
+      const hasCombatTarget = Boolean(targetBot || targetTransport || targetingPlayer || targetDepot)
+      const supportMate = !bot.inSquad && hasCombatTarget ? teamRoster.filter(candidate => candidate !== bot).sort((a, b) => bot.root.position.distanceToSquared(a.root.position) - bot.root.position.distanceToSquared(b.root.position))[0] : undefined, isolated = Boolean(supportMate && bot.root.position.distanceToSquared(supportMate.root.position) > 12 ** 2)
+      const moveTarget = isolated ? supportMate!.root.position : targetPos, moveStop = isolated ? 7.5 : hasCombatTarget ? desiredDistance * .72 : desiredDistance
+      const dx = targetPos.x - bot.root.position.x, dz = targetPos.z - bot.root.position.z, distance = Math.hypot(dx, dz), moveDx = moveTarget.x - bot.root.position.x, moveDz = moveTarget.z - bot.root.position.z, moveDistance = Math.hypot(moveDx, moveDz), moving = !holdingCover && moveDistance > moveStop, prone = bot.suppression > 1.28 && !bot.coverTarget && !bot.riding
       const pose: BotPose = prone ? 'prone' : holdingCover || bot.suppression > .65 ? 'crouch' : 'stand'
       bot.root.rotation.y = Math.atan2(dx, dz) + Math.PI
       if (bot.smokes && bot.suppression > 1 && time >= bot.smokeAt && distance > 5 && distance < 34) this.throwNpcSmoke(bot, targetPos, time)
       if ((targetBot || targetTransport || targetingPlayer || targetDepot) && bot.grenades && distance > 10 && distance < 28 && time >= bot.nextGrenade) this.throwNpcGrenade(bot, targetPos, time)
       if (moving) {
-        const speed = (bot.team === 'ally' ? 1.35 : 1.05) * (entangled ? .32 : 1) * (1 - Math.min(.55, bot.suppression * .32)) * (prone ? .28 : pose === 'crouch' ? .72 : 1)
-        this.moveBot(bot, dx, dz, speed, dt)
+        const speed = (bot.team === 'ally' ? 5.25 : 5.05) * (entangled ? .32 : 1) * (1 - Math.min(.55, bot.suppression * .32)) * (prone ? .28 : pose === 'crouch' ? .72 : 1)
+        this.moveBot(bot, moveDx, moveDz, speed, dt)
       } else if (distance > 8) {
-        this.moveWithCollision(bot.root.position, Math.cos(bot.root.rotation.y) * bot.strafe * .28 * dt, -Math.sin(bot.root.rotation.y) * bot.strafe * .28 * dt, .34)
+        this.moveWithCollision(bot.root.position, Math.cos(bot.root.rotation.y) * bot.strafe * .9 * dt, -Math.sin(bot.root.rotation.y) * bot.strafe * .9 * dt, .34)
       }
       bot.root.position.x = THREE.MathUtils.clamp(bot.root.position.x, -this.battlefieldHalfWidth(), this.battlefieldHalfWidth())
-      const step = moving && pose === 'stand' ? Math.sin(time * 7 + bot.phase) * .55 : moving && pose === 'crouch' ? Math.sin(time * 7 + bot.phase) * .28 : 0
+      const step = moving && pose === 'stand' ? Math.sin(time * 10.5 + bot.phase) * .55 : moving && pose === 'crouch' ? Math.sin(time * 8.5 + bot.phase) * .28 : 0
       const terrainY = this.terrainHeight(bot.root.position.x, bot.root.position.z)
       bot.root.position.y = terrainY + (pose === 'prone' ? .08 : moving ? Math.abs(Math.sin(time * 7 + bot.phase)) * .025 : 0)
       this.poseBot(bot, pose, dt, step)
@@ -2258,7 +2442,7 @@ export class Game {
         if (time < bot.reloadUntil) { const phase = 1 - (bot.reloadUntil - time) / weapon.reload, motion = Math.sin(THREE.MathUtils.clamp(phase, 0, 1) * Math.PI); bot.weapon.position.y = -.32 * motion; bot.weapon.position.x = -.12 * motion; bot.weapon.rotation.z = -.42 * motion; bot.arms[0].rotation.x = -.9 + motion * .62; bot.muzzle.visible = false; continue }
         bot.mag = weapon.magazine; bot.reloadUntil = 0; bot.weapon.position.set(0, 0, 0); bot.weapon.rotation.set(0, 0, 0); bot.nextShot = Math.max(bot.nextShot, time + .22)
       }
-      if (holdingCover && bot.suppression < .35 && bot.hp >= 50 && bot.mag > Math.ceil(weapon.magazine * .35)) { bot.coverTarget = undefined; bot.coverUntil = 0; holdingCover = false }
+      if (holdingCover && !engaged && bot.suppression < .35 && bot.hp >= 50 && bot.mag > Math.ceil(weapon.magazine * .35)) { bot.coverTarget = undefined; bot.coverUntil = 0; holdingCover = false }
       if (!bot.mag) { bot.reloadUntil = time + weapon.reload * (.95 + Math.random() * .15); bot.muzzle.visible = false; continue }
       if (prone && bot.suppression > 1.42) { bot.muzzle.visible = false; continue }
       if (distance > weapon.range || time < bot.nextShot) continue
@@ -2266,7 +2450,7 @@ export class Game {
       bot.nextShot = time + THREE.MathUtils.lerp(weapon.interval[0], weapon.interval[1], Math.random()) * (bot.team === 'enemy' ? this.enemyFireRate : 1)
       bot.shotAt = time; bot.mag--
       const accuracy = THREE.MathUtils.clamp((.72 - distance * .012) * weapon.accuracy * (1 - Math.min(.65, bot.suppression * .42)) * (bot.team === 'enemy' ? this.enemyAccuracy : 1), .05, .82)
-      let hitShot = Math.random() <= accuracy; const start = bot.muzzle.getWorldPosition(new THREE.Vector3()), end = targetBot ? targetBot.root.position.clone().add(new THREE.Vector3(0, 1.35, 0)) : targetTransport ? targetTransport.root.position.clone().add(new THREE.Vector3(0, 1, 0)) : targetDepot ? targetDepot.position.clone().add(new THREE.Vector3(0, 1, 0)) : this.camera.position.clone(); if (!hitShot) { end.x += (Math.random() - .5) * 3.5; end.y += (Math.random() - .5) * 2.5 } const shotDirection = end.clone().sub(start), shotDistance = shotDirection.length(); this.ray.set(start, shotDirection.normalize()); const obstruction = this.withStaticCover(this.ray.intersectObjects(this.occlusionMeshes(), false)[0]); if (obstruction && obstruction.distance < shotDistance) { end.copy(obstruction.point); hitShot = false }
+      let hitShot = Math.random() <= accuracy; const start = bot.muzzle.getWorldPosition(new THREE.Vector3()), end = targetBot ? targetBot.root.position.clone().add(new THREE.Vector3(0, 1.35, 0)) : targetTransport ? targetTransport.root.position.clone().add(new THREE.Vector3(0, 1, 0)) : targetDepot ? targetDepot.position.clone().add(new THREE.Vector3(0, 1, 0)) : this.camera.position.clone(); if (!hitShot) { end.x += (Math.random() - .5) * 3.5; end.y += (Math.random() - .5) * 2.5 } const shotDirection = end.clone().sub(start), shotDistance = shotDirection.length(); this.ray.set(start, shotDirection.normalize()); this.ray.far = shotDistance; const obstruction = this.withStaticCover(this.ray.intersectObjects(this.occlusionMeshes(), false)[0]); this.ray.far = Infinity; if (obstruction && obstruction.distance < shotDistance) { end.copy(obstruction.point); hitShot = false }
       if (this.smokeBlocks(start, end)) hitShot = false; if (bot.team === 'enemy') this.nearMiss(start, end)
       this.tracer(start, end, bot.team === 'ally' ? 0xffdd83 : 0xff8b68); const sound = this.soundAt(bot.root.position); this.audio.shot(weapon.kind, sound.volume, sound.pan); this.alertBots(bot.team, bot.root.position)
       if (targetBot) targetBot.suppression = Math.min(1.6, targetBot.suppression + weapon.suppression)
@@ -2287,6 +2471,7 @@ export class Game {
     for (const transport of this.transports) { if (!transport.alive || transport.hp >= transport.maxHp * .57 || time < transport.nextSmoke) continue; transport.nextSmoke = time + .32 + Math.random() * .2; const severity = 1 - transport.hp / transport.maxHp; this.particle(transport.root.position.clone().add(new THREE.Vector3(0, 1.25, 0)), new THREE.Vector3((Math.random() - .5) * .3, .65 + Math.random() * .45, (Math.random() - .5) * .3), severity > .65 ? 0x292a27 : 0x555750, .18 + severity * .18, 1.7 + severity, -.06, .7, .32 + severity * .4) }
   }
   private updateBotAntiTank(time: number) {
+    if (this.operationOpeningActive(time)) return
     for (const bot of this.bots) {
       if (!bot.alive || !bot.antiTank || bot.riding || time < bot.nextRocket || time - bot.throwAt < 1.4) continue
       const target = this.tanks.filter(tank => tank.alive && tank.team !== bot.team).sort((a, b) => bot.root.position.distanceToSquared(a.root.position) - bot.root.position.distanceToSquared(b.root.position))[0]
@@ -2301,6 +2486,7 @@ export class Game {
       this.updateTankCrew(tank, time)
       if (tank.playerDriven) continue
       if (!tank.alive) { tank.nextSmoke = this.updateVehicleWreck(tank.root, time, tank.nextSmoke); if (time >= tank.respawnAt && this.tickets[tank.team === 'ally' ? 0 : 1] > 0) this.reinforceTank(tank, time); continue }
+      if (this.operationOpeningActive(time)) { tank.nextShot = Math.max(tank.nextShot, this.operationOpeningUntil); tank.mgPauseUntil = Math.max(tank.mgPauseUntil, this.operationOpeningUntil); if (tank.team === 'enemy') continue }
       if (tank.driver && (!tank.driver.alive || tank.driver.drivingTank !== tank)) tank.driver = undefined
       if (tank.driver && tank.hp < tank.maxHp * .25) { this.dismountTankDriver(tank, true); continue }
       if (!tank.driver && tank.hp >= tank.maxHp * .4) { const driver = this.bots.filter(bot => bot.alive && bot.team === tank.team && !bot.inSquad && !bot.riding && !bot.drivingTank && !bot.drivingTransport && !bot.piloting && !bot.chuting && !bot.emplacement && !bot.machineGun && !bot.mortarRig && bot.root.position.distanceToSquared(tank.root.position) < 22 ** 2).sort((a, b) => a.root.position.distanceToSquared(tank.root.position) - b.root.position.distanceToSquared(tank.root.position))[0]; if (driver) { tank.driver = driver; driver.drivingTank = tank; driver.coverTarget = undefined } }
@@ -2311,13 +2497,15 @@ export class Game {
       for (const candidate of this.transports) { if (!candidate.alive || candidate.team === tank.team) continue; const distance = tank.root.position.distanceToSquared(candidate.root.position); if (distance < best) { best = distance; targetBot = undefined; targetTank = undefined; targetTransport = candidate; targetingPlayer = false; targetPos = candidate.root.position } }
       if (tank.team === 'enemy' && !this.dead) { const distance = tank.root.position.distanceToSquared(this.camera.position); if (distance < best) { best = distance; targetBot = undefined; targetTank = undefined; targetTransport = undefined; targetingPlayer = true; targetPos = this.camera.position } }
       if (this.campaign.rule === 'demolition' && tank.team === this.campaign.attacker) { const depot = this.depots.filter(item => !item.destroyed).sort((a, b) => tank.root.position.distanceToSquared(a.position) - tank.root.position.distanceToSquared(b.position))[0], distance = depot ? tank.root.position.distanceToSquared(depot.position) : Infinity; if (depot && distance < best) { best = distance; targetBot = undefined; targetTank = undefined; targetTransport = undefined; targetingPlayer = false; targetPos = depot.position } }
-      const combatTarget = targetPos && best < 58 ** 2
-      if (!combatTarget) { const objective = this.campaign.rule === 'assault' ? this.objectives[this.assaultIndex] : this.objectives.filter(point => point.owner !== tank.team).sort((a, b) => tank.root.position.distanceToSquared(a.position) - tank.root.position.distanceToSquared(b.position))[0]; targetPos = objective?.position }
+      const objective = this.campaign.rule === 'assault' ? this.pendingAssaultObjectives().sort((a, b) => tank.root.position.distanceToSquared(a.position) - tank.root.position.distanceToSquared(b.position))[0] : this.objectives.filter(point => point.owner !== tank.team).sort((a, b) => tank.root.position.distanceToSquared(a.position) - tank.root.position.distanceToSquared(b.position))[0]
+      let combatTarget = Boolean(targetPos && best < 58 ** 2)
+      if (this.campaign.rule === 'assault' && objective && tank.root.position.distanceToSquared(objective.position) > (objective.radius + 9) ** 2) { targetBot = undefined; targetTank = undefined; targetTransport = undefined; targetingPlayer = false; targetPos = objective.position; combatTarget = false }
+      else if (!combatTarget) targetPos = objective?.position
       if (!targetPos) continue
       const dx = targetPos.x - tank.root.position.x, dz = targetPos.z - tank.root.position.z, distance = Math.hypot(dx, dz), worldYaw = Math.atan2(dx, dz) + Math.PI, stop = combatTarget ? 34 : 3.5
       const mobility = tank.tracks <= 0 || tank.engine <= 0 || !this.crewAlive(tank, 'driver') ? 0 : (.35 + tank.tracks / 100 * .65) * (.3 + tank.engine / 100 * .7) * (.55 + tank.crew * .1125)
-      if (time < tank.reverseUntil && mobility > 0) { tank.root.rotation.y += tank.reverseTurn * dt * .7; const forward = new THREE.Vector3(-Math.sin(tank.root.rotation.y), 0, -Math.cos(tank.root.rotation.y)); this.moveTankWithCollision(tank.root.position, -forward.x * dt * 1.25 * mobility, -forward.z * dt * 1.25 * mobility); continue }
-      if (distance > stop && mobility > 0) { tank.root.rotation.y = worldYaw; const moved = this.moveVehicleToward(tank.root.position, targetPos, dt * 1.65 * mobility, tank.reverseTurn); tank.stalledFor = moved ? Math.max(0, tank.stalledFor - dt * 2) : tank.stalledFor + dt; if (tank.stalledFor > 1.1) { tank.stalledFor = 0; tank.reverseUntil = time + 1.2 + Math.random() * .5; tank.reverseTurn *= -1 } }
+      if (time < tank.reverseUntil && mobility > 0) { tank.root.rotation.y += tank.reverseTurn * dt * .9; const forward = new THREE.Vector3(-Math.sin(tank.root.rotation.y), 0, -Math.cos(tank.root.rotation.y)), reversed = this.moveTankWithCollision(tank.root.position, -forward.x * dt * 1.8 * mobility, -forward.z * dt * 1.8 * mobility); tank.stalledFor = reversed ? 0 : tank.stalledFor + dt; if (!reversed && tank.stalledFor > .4) { const side = new THREE.Vector3(-forward.z * tank.reverseTurn, 0, forward.x * tank.reverseTurn); if (this.moveTankWithCollision(tank.root.position, side.x * dt * 2.4, side.z * dt * 2.4)) tank.stalledFor = 0 } continue }
+      if (distance > stop && mobility > 0) { const beforeX = tank.root.position.x, beforeZ = tank.root.position.z; tank.root.rotation.y = worldYaw; const moved = this.moveVehicleToward(tank.root.position, targetPos, dt * 3.1 * mobility, tank.reverseTurn), movedX = tank.root.position.x - beforeX, movedZ = tank.root.position.z - beforeZ; if (moved && Math.hypot(movedX, movedZ) > .001) tank.root.rotation.y = Math.atan2(movedX, movedZ) + Math.PI; tank.stalledFor = moved ? Math.max(0, tank.stalledFor - dt) : tank.stalledFor + dt; if (tank.stalledFor > .55) { tank.stalledFor = 0; tank.reverseUntil = time + 1.6 + Math.random() * .6; tank.reverseTurn *= -1 } }
       else tank.stalledFor = 0
       if (!tank.turretHealth || !this.crewAlive(tank, 'gunner')) continue
       if (combatTarget) { tank.turret.rotation.y = worldYaw - tank.root.rotation.y; const targetHeight = targetingPlayer ? this.camera.position.y : targetTank || targetTransport ? targetPos.y + 1 : targetPos.y + 1.2, gunHeight = tank.root.position.y + 1.56; tank.pitch.rotation.x = THREE.MathUtils.damp(tank.pitch.rotation.x, THREE.MathUtils.clamp(Math.atan2(targetHeight - gunHeight, Math.max(1, distance)), -.18, .35), 4, dt); if ((targetBot || targetingPlayer) && distance < 52 && time >= tank.nextMg && time >= tank.mgPauseUntil) { if (!tank.mgBurst) tank.mgBurst = 5 + Math.floor(Math.random() * 5); tank.nextMg = time + .115; const start = tank.coaxMuzzle.getWorldPosition(new THREE.Vector3()), end = targetPos.clone().setY(targetingPlayer ? this.camera.position.y : 1.3); end.x += (Math.random() - .5) * distance * .022; end.y += (Math.random() - .5) * distance * .014; const obstruction = this.coverHit(start, end), blocked = Boolean(obstruction); if (obstruction) end.copy(obstruction.point); this.tracer(start, end, tank.team === 'ally' ? 0xffdd83 : 0xff8068); const sound = this.soundAt(tank.root.position); this.audio.shot('auto', sound.volume * .7, sound.pan); if (!blocked && Math.random() < THREE.MathUtils.clamp(.78 - distance * .012, .18, .66)) { if (targetBot) { targetBot.hp -= 16; if (targetBot.hp <= 0) this.down(targetBot) } else this.hurtPlayer(7 * this.enemyDamage, start) } if (!--tank.mgBurst) tank.mgPauseUntil = time + .6 + Math.random() * .6 } if (distance < 58 && time >= tank.nextShot) { tank.nextShot = time + 4.3 + Math.random() * 1.8; const origin = tank.muzzle.getWorldPosition(new THREE.Vector3()), end = targetPos.clone().setY(targetHeight), accuracy = THREE.MathUtils.clamp(.85 - distance * .008, .42, .78); if (Math.random() > accuracy) { end.x += (Math.random() - .5) * 6; end.z += (Math.random() - .5) * 5 } this.launchCannonShell(origin, end.sub(origin).normalize(), tank.team, false, 175); const sound = this.soundAt(tank.root.position); this.audio.shot('bolt', sound.volume, sound.pan) } }
@@ -2327,13 +2515,15 @@ export class Game {
     for (const transport of this.transports) {
       if (transport.playerDriven) continue
       if (!transport.alive) { transport.nextSmoke = this.updateVehicleWreck(transport.root, time, transport.nextSmoke); if (time >= transport.respawnAt && this.tickets[transport.team === 'ally' ? 0 : 1] > 0) this.reinforceTransport(transport, time); continue }
+      if (this.operationOpeningActive(time) && transport.team === 'enemy') continue
       if (transport.driver && (!transport.driver.alive || transport.driver.drivingTransport !== transport)) transport.driver = undefined
       if (transport.driver && transport.hp < transport.maxHp * .3) { this.dismountTransportDriver(transport); this.evacuateTransport(transport); continue }
       if (!transport.driver && transport.hp >= transport.maxHp * .4) { const driver = this.bots.filter(bot => bot.alive && bot.team === transport.team && !bot.inSquad && !bot.riding && !bot.drivingTank && !bot.drivingTransport && !bot.piloting && !bot.chuting && !bot.emplacement && !bot.machineGun && !bot.mortarRig && bot.root.position.distanceToSquared(transport.root.position) < 22 ** 2).sort((a, b) => a.root.position.distanceToSquared(transport.root.position) - b.root.position.distanceToSquared(transport.root.position))[0]; if (driver) { transport.driver = driver; driver.drivingTransport = transport; driver.coverTarget = undefined } }
       if (!this.transportDriverSeated(transport)) continue
-      const strategic = this.campaign.rule === 'assault' ? this.objectives[this.assaultIndex] : this.objectives.filter(point => point.owner !== transport.team).sort((a, b) => transport.root.position.distanceToSquared(a.position) - transport.root.position.distanceToSquared(b.position))[0]
-      if (!strategic) continue
-      const base = new THREE.Vector3(transport.team === 'ally' ? 5 : -5, 0, transport.team === 'ally' ? 45 : -45), fromFront = base.clone().sub(strategic.position).setY(0).normalize(), drop = strategic.position.clone().addScaledVector(fromFront, 12), riders = this.bots.filter(bot => bot.alive && bot.riding === transport)
+      const riders = this.bots.filter(bot => bot.alive && bot.riding === transport)
+      const strategic = this.campaign.rule === 'assault' ? this.pendingAssaultObjectives().sort((a, b) => transport.root.position.distanceToSquared(a.position) - transport.root.position.distanceToSquared(b.position))[0] : this.objectives.filter(point => point.owner !== transport.team).sort((a, b) => transport.root.position.distanceToSquared(a.position) - transport.root.position.distanceToSquared(b.position))[0]
+      if (!strategic) { if (riders.length) this.evacuateTransport(transport); transport.mission = 'hold'; continue }
+      const baseZ = this.mapBounds.halfDepth - 10, base = new THREE.Vector3(transport.team === 'ally' ? 5 : -5, 0, transport.team === 'ally' ? baseZ : -baseZ), drop = strategic.position.clone()
       if (transport.mission === 'pickup' && transport.root.position.distanceToSquared(base) < 8 ** 2) {
         const free = Math.max(0, 6 - riders.length), recruits = this.bots.filter(bot => bot.alive && bot.team === transport.team && !bot.inSquad && !bot.riding && !bot.drivingTank && !bot.drivingTransport && !bot.piloting && !bot.chuting && !bot.emplacement && !bot.machineGun && !bot.mortarRig && bot.root.position.distanceToSquared(transport.root.position) < 9 ** 2).sort((a, b) => a.root.position.distanceToSquared(transport.root.position) - b.root.position.distanceToSquared(transport.root.position)).slice(0, free)
         recruits.forEach(bot => { bot.riding = transport; bot.coverTarget = undefined; bot.bandageUntil = 0 })
@@ -2341,23 +2531,26 @@ export class Game {
         if (loaded >= 4 || loaded && time >= transport.waitUntil) { transport.mission = 'transit'; transport.waitUntil = 0 }
         else { if (time >= transport.waitUntil) transport.waitUntil = time + 5; continue }
       }
-      if (transport.mission === 'transit' && transport.root.position.distanceToSquared(drop) < 8 ** 2) { transport.mission = 'unload'; transport.waitUntil = time + 8; transport.nextDrop = time }
+      const enemyClose = this.bots.some(bot => bot.alive && bot.team !== transport.team && !bot.piloting && !bot.chuting && bot.root.position.distanceToSquared(transport.root.position) < 22 ** 2) || transport.team === 'enemy' && !this.dead && this.camera.position.distanceToSquared(transport.root.position) < 22 ** 2
+      const shouldDismount = riders.length && (transport.root.position.distanceToSquared(drop) < (strategic.radius + 6) ** 2 || time - transport.lastDamageAt < 6 || enemyClose || transport.stalledFor > .42)
+      if (transport.mission === 'transit' && shouldDismount) { transport.mission = 'unload'; transport.waitUntil = time + 8; transport.nextDrop = time }
       if (transport.mission === 'unload') {
         if (riders.length && time >= transport.nextDrop) { this.dismountTransportPassenger(transport, riders[riders.length - 1], riders.length - 1); transport.nextDrop = time + .4 }
-        if (!riders.length || time >= transport.waitUntil) { this.evacuateTransport(transport); transport.mission = 'return' }
+        if (!riders.length || time >= transport.waitUntil) { this.evacuateTransport(transport); transport.mission = 'hold' }
         continue
       }
-      if (transport.mission === 'return' && transport.root.position.distanceToSquared(base) < 8 ** 2) { transport.mission = 'pickup'; transport.waitUntil = time + 10; continue }
-      const target = transport.mission === 'transit' ? drop : base, dx = target.x - transport.root.position.x, dz = target.z - transport.root.position.z, distance = Math.hypot(dx, dz)
+      const target = transport.mission === 'pickup' ? base : drop, dx = target.x - transport.root.position.x, dz = target.z - transport.root.position.z, distance = Math.hypot(dx, dz)
       if (distance < 1.2) continue
-      if (time < transport.reverseUntil) { transport.root.rotation.y += transport.reverseTurn * dt * .85; const forward = new THREE.Vector3(Math.sin(transport.root.rotation.y), 0, Math.cos(transport.root.rotation.y)), speed = dt * 1.8; this.moveTankWithCollision(transport.root.position, -forward.x * speed, -forward.z * speed); for (const wheel of transport.wheels) wheel.rotation.x += speed * 2.5; continue }
-      transport.root.rotation.y = Math.atan2(dx, dz); const speed = dt * (transport.mission === 'transit' ? 2.35 : 2.7), moved = this.moveVehicleToward(transport.root.position, target, speed, transport.reverseTurn); transport.stalledFor = moved ? Math.max(0, transport.stalledFor - dt * 2) : transport.stalledFor + dt; if (transport.stalledFor > 1.1) { transport.stalledFor = 0; transport.reverseUntil = time + 1.2 + Math.random() * .6; transport.reverseTurn *= -1 } for (const wheel of transport.wheels) wheel.rotation.x -= speed * 2.5
+      if (time < transport.reverseUntil) { transport.root.rotation.y += transport.reverseTurn * dt * 1.05; const forward = new THREE.Vector3(Math.sin(transport.root.rotation.y), 0, Math.cos(transport.root.rotation.y)), speed = dt * 4.4, reversed = this.moveTankWithCollision(transport.root.position, -forward.x * speed, -forward.z * speed); transport.stalledFor = reversed ? 0 : transport.stalledFor + dt; if (!reversed && transport.stalledFor > .35) { const side = new THREE.Vector3(-forward.z * transport.reverseTurn, 0, forward.x * transport.reverseTurn); if (this.moveTankWithCollision(transport.root.position, side.x * dt * 3, side.z * dt * 3)) transport.stalledFor = 0 } for (const wheel of transport.wheels) wheel.rotation.x += speed * 2.5; continue }
+      const beforeX = transport.root.position.x, beforeZ = transport.root.position.z; transport.root.rotation.y = Math.atan2(dx, dz); const speed = dt * (transport.mission === 'pickup' ? 6.2 : 8.2), moved = this.moveVehicleToward(transport.root.position, target, speed, transport.reverseTurn), movedX = transport.root.position.x - beforeX, movedZ = transport.root.position.z - beforeZ; if (moved && Math.hypot(movedX, movedZ) > .001) transport.root.rotation.y = Math.atan2(movedX, movedZ); transport.stalledFor = moved ? Math.max(0, transport.stalledFor - dt) : transport.stalledFor + dt; if (transport.stalledFor > .5) { transport.stalledFor = 0; transport.reverseUntil = time + 1.8 + Math.random() * .7; transport.reverseTurn *= -1 } for (const wheel of transport.wheels) wheel.rotation.x -= speed * 2.5
     }
   }
   private updateEmplacements(time: number) {
+    const opening = this.operationOpeningActive(time)
     for (const gun of this.emplacements) {
       if (!gun.alive) { if (time >= gun.respawnAt && this.tickets[gun.team === 'ally' ? 0 : 1] > 0) { gun.alive = true; gun.occupied = false; gun.operator = undefined; gun.operatorUntil = 0; gun.hp = gun.kind === 'aa' ? 180 : 240; gun.root.rotation.z = 0 } else continue }
       if (gun.occupied) continue
+      if (opening) { gun.nextShot = Math.max(gun.nextShot, this.operationOpeningUntil); continue }
       if (gun.operator && (!gun.operator.alive || gun.operator.emplacement !== gun)) gun.operator = undefined
       if (gun.operator && time >= gun.operatorUntil) { gun.operator.emplacement = undefined; gun.operator = undefined }
       const threat = gun.kind === 'aa' ? this.planes.some(plane => plane.alive && !plane.abandoned && plane.team !== gun.team && plane.root.position.distanceToSquared(gun.root.position) < 95 ** 2) : this.tanks.some(tank => tank.alive && tank.team !== gun.team && tank.root.position.distanceToSquared(gun.root.position) < 70 ** 2) || this.transports.some(transport => transport.alive && transport.team !== gun.team && transport.root.position.distanceToSquared(gun.root.position) < 65 ** 2)
@@ -2410,11 +2603,33 @@ export class Game {
     if (position.distanceToSquared(point.position) >= point.radius ** 2) return
     this.objectiveScore += 150; this.events.objectiveScore(150, `占领 ${point.id} 点`, this.kills * 100 + this.objectiveScore)
   }
+  private advanceSonghuOperation(now: number) {
+    if (this.operationPhase >= 2) { this.finish('ally'); return }
+    this.operationPhase++
+    this.operationTransitionUntil = now + 8
+    this.firing = false; this.tankMgFiring = false
+    for (const bot of this.bots) bot.nextShot = Math.max(bot.nextShot, this.operationTransitionUntil)
+    for (const tank of this.tanks) { tank.nextShot = Math.max(tank.nextShot, this.operationTransitionUntil); tank.mgPauseUntil = Math.max(tank.mgPauseUntil, this.operationTransitionUntil) }
+    for (const plane of this.planes) { plane.nextShot = Math.max(plane.nextShot, this.operationTransitionUntil); plane.nextAttack = Math.max(plane.nextAttack, this.operationTransitionUntil) }
+    const attacker = this.assaultAttacker(), defender: Team = attacker === 'ally' ? 'enemy' : 'ally'
+    for (const point of this.activeAssaultObjectives()) { point.owner = defender; point.capturing = null; point.progress = 0 }
+    if (this.operationPhase === 2) this.tickets = [70, Infinity]
+    else this.tickets[1] = Math.min(this.maxTickets, this.tickets[1] + 35)
+    this.deploySonghuReinforcements(now)
+    this.status = this.operationPhase === 1 ? '外围阵地失守 · 撤向八字桥' : '守住了八字桥 · 中国军队开始反击'
+    this.statusUntil = now + 8
+    this.logCombat('operation_phase', { phase: this.operationPhase + 1, label: this.operationLabel(), attacker })
+  }
   private updateObjectives(dt: number) {
-    this.matchTime = Math.max(0, this.matchTime - dt)
-    let ownedAllies = 0, ownedEnemies = 0, playerCapture = ''; const attacker = this.campaign.attacker ?? 'ally'
+    const now = performance.now() / 1000
+    if (this.isSonghuOperation() && this.operationOpeningUntil && now >= this.operationOpeningUntil && !this.operationOpeningBarrage) {
+      this.operationOpeningBarrage = true; this.operationOpeningUntil = now + 3.2; this.nextArtilleryAt = now + 30; this.scheduleArtillery(now, 'enemy', 9); this.status = '日军准备炮击！坚守阵地！'; this.statusUntil = now + 5
+    }
+    const opening = this.operationOpeningActive(now), activeIndices = this.activeAssaultIndices(), attacker = this.assaultAttacker(), transitioning = opening || this.isSonghuOperation() && now < this.operationTransitionUntil
+    if (!opening) this.matchTime = Math.max(0, this.matchTime - dt)
+    let ownedAllies = 0, ownedEnemies = 0, playerCapture = this.isSonghuOperation() ? opening ? this.operationOpeningBarrage ? '日军准备炮击 · 就地隐蔽' : `守军部署 · ${Math.ceil(this.operationOpeningUntil - now)}秒` : now < this.operationTransitionUntil ? `战线转移 · ${Math.ceil(this.operationTransitionUntil - now)}秒` : `第 ${this.operationPhase + 1}/3 阶段 · ${this.operationLabel()}` : '', objectiveAlerts: string[] = []
     for (let pointIndex = 0; pointIndex < this.objectives.length; pointIndex++) {
-      const point = this.objectives[pointIndex], captureAllowed = this.campaign.rule !== 'assault' || pointIndex === this.assaultIndex
+      const point = this.objectives[pointIndex], captureAllowed = !transitioning && (this.campaign.rule !== 'assault' || activeIndices.includes(pointIndex))
       let allies = 0, enemies = 0
       for (const bot of this.bots) if (bot.alive && !bot.riding && !bot.drivingTank && !bot.drivingTransport && !bot.piloting && !bot.chuting && bot.root.position.distanceToSquared(point.position) < point.radius ** 2) bot.team === 'ally' ? allies++ : enemies++
       for (const tank of this.tanks) if (tank.alive && tank.root.position.distanceToSquared(point.position) < point.radius ** 2) tank.team === 'ally' ? allies++ : enemies++
@@ -2424,26 +2639,29 @@ export class Game {
       if (captureAllowed && team && team !== point.owner) {
         if (point.capturing !== team) { point.progress = Math.max(0, point.progress - dt * .8); if (!point.progress) point.capturing = team }
         else point.progress = Math.min(1, point.progress + dt * (.12 + Math.min(3, team === 'ally' ? allies : enemies) * .045))
-        if (point.progress >= 1) { point.owner = team; point.capturing = null; point.progress = 0; this.awardCapture(point, team); if (this.campaign.rule === 'assault') { this.assaultIndex++; const ticketIndex = attacker === 'ally' ? 0 : 1; this.tickets[ticketIndex] = Math.min(999, this.tickets[ticketIndex] + 40); if (this.assaultIndex >= this.objectives.length) { this.finish(attacker); return } this.status = `下一目标：${this.objectives[this.assaultIndex].id} 点`; this.statusUntil = performance.now() / 1000 + 2.2 } }
+        if (point.progress >= 1) { point.owner = team; point.capturing = null; point.progress = 0; this.awardCapture(point, team); if (this.campaign.rule === 'assault') { if (this.isSonghuOperation()) { if (this.activeAssaultObjectives().every(objective => objective.owner === attacker)) { this.advanceSonghuOperation(now); if (this.matchOver) return } } else { this.assaultIndex++; const ticketIndex = attacker === 'ally' ? 0 : 1; this.tickets[ticketIndex] = Math.min(999, this.tickets[ticketIndex] + 40); if (this.assaultIndex >= this.objectives.length) { this.finish(attacker); return } this.status = `下一目标：${this.objectives[this.assaultIndex].id} 点`; this.statusUntil = now + 2.2 } } }
       } else { point.progress = Math.max(0, point.progress - dt * .06); if (!point.progress) point.capturing = null }
-      const locked = this.campaign.rule === 'assault' && pointIndex > this.assaultIndex, color = locked ? 0x4c504b : point.owner === 'ally' ? 0x557ea8 : point.owner === 'enemy' ? 0xa54c3e : 0xd4cdb8
+      const locked = this.campaign.rule === 'assault' && !activeIndices.includes(pointIndex), color = locked ? 0x4c504b : point.owner === 'ally' ? 0x557ea8 : point.owner === 'enemy' ? 0xa54c3e : 0xd4cdb8
       ;(point.ring.material as THREE.MeshBasicMaterial).color.setHex(color); (point.flag.material as THREE.MeshBasicMaterial).color.setHex(color)
       point.flag.position.y = 4.15 - point.progress * 1.2
       if (point.owner === 'ally') ownedAllies++; if (point.owner === 'enemy') ownedEnemies++
-      if (!this.dead && captureAllowed && this.camera.position.distanceToSquared(point.position) < point.radius ** 2) playerCapture = this.campaign.rule === 'assault' && attacker === 'enemy' ? `防守 ${point.id} 点` : point.owner !== 'ally' ? `${point.id}点 ${Math.round(point.progress * 100)}%` : ''
+      if (captureAllowed && allies && enemies) objectiveAlerts.push(`⚔ ${point.id} 点争夺中`)
+      else if (captureAllowed && point.capturing && point.progress > 0) { const percent = Math.round(point.progress * 100); objectiveAlerts.push(point.capturing === 'enemy' ? `⚠ ${point.id} 点遭到攻击 · ${percent}%` : `◆ 正在占领 ${point.id} 点 · ${percent}%`) }
+      if (!this.dead && captureAllowed && this.camera.position.distanceToSquared(point.position) < point.radius ** 2) playerCapture = attacker === 'enemy' ? `防守 ${point.id} 点` : point.owner !== 'ally' ? `反攻 ${point.id}点 ${Math.round(point.progress * 100)}%` : `守住 ${point.id} 点`
     }
+    if (objectiveAlerts.length) playerCapture = objectiveAlerts.join('　')
     const balance = ownedAllies - ownedEnemies
     if (this.campaign.rule === 'conquest') { if (balance > 0) this.tickets[1] = Math.max(0, this.tickets[1] - dt * balance * .12); if (balance < 0) this.tickets[0] = Math.max(0, this.tickets[0] + dt * balance * .12) }
     if (this.campaign.rule === 'demolition' && !playerCapture) playerCapture = `补给库剩余 ${this.depots.filter(depot => !depot.destroyed).length} / ${this.depots.length}`
-    const flags = this.objectives.map((o, index) => `${this.campaign.rule === 'assault' && index > this.assaultIndex ? '×' : o.owner === 'ally' ? '◆' : o.owner === 'enemy' ? '◇' : '○'}${o.id}`).join('　')
-    const deploymentSpawns = this.objectives.filter(o => o.owner === 'ally' && this.spawnIsSafe(o.position, 'ally')).map(o => o.id)
-    if (this.tanks.some(item => item.team === 'ally' && item.alive && !item.playerDriven)) deploymentSpawns.push('vehicle-tank')
-    if (this.transports.some(item => item.team === 'ally' && item.alive && !item.playerDriven)) deploymentSpawns.push('vehicle-transport')
+    const flags = this.objectives.map((o, index) => `${this.campaign.rule === 'assault' && !activeIndices.includes(index) ? '×' : o.owner === 'ally' ? '◆' : o.owner === 'enemy' ? '◇' : '○'}${o.id}`).join('　')
+    const deploymentSpawns = this.objectives.filter((o, index) => this.objectiveDeployable(o, 'ally') && (this.campaign.rule !== 'assault' || activeIndices.includes(index))).map(o => o.id)
+    if (this.tanks.some(item => item.team === 'ally' && item.alive && !item.playerDriven && this.vehicleDeployable(item.root, item.team, item.lastDamageAt))) deploymentSpawns.push('vehicle-tank')
+    if (this.transports.some(item => item.team === 'ally' && item.alive && !item.playerDriven && this.vehicleDeployable(item.root, item.team, item.lastDamageAt))) deploymentSpawns.push('vehicle-transport')
     if (this.planes.some(item => item.team === 'ally' && item.alive && !item.playerDriven)) deploymentSpawns.push('vehicle-plane')
     this.events.battle([Math.ceil(this.tickets[0]), Math.ceil(this.tickets[1])], flags, playerCapture, deploymentSpawns, Math.ceil(this.matchTime))
     if (!this.matchOver && (this.tickets[0] <= 0 || this.tickets[1] <= 0)) this.finish(this.tickets[0] > 0 ? 'ally' : 'enemy')
     if (!this.matchOver && this.matchTime <= 0) {
-      if (this.campaign.rule === 'assault' || this.campaign.rule === 'demolition') { const attacker = this.campaign.attacker ?? 'ally'; this.finish(attacker === 'ally' ? 'enemy' : 'ally'); return }
+      if (this.campaign.rule === 'assault' || this.campaign.rule === 'demolition') { const currentAttacker = this.campaign.rule === 'assault' ? this.assaultAttacker() : this.campaign.attacker ?? 'ally'; this.finish(currentAttacker === 'ally' ? 'enemy' : 'ally'); return }
       if (this.tickets[0] !== this.tickets[1]) { this.finish(this.tickets[0] > this.tickets[1] ? 'ally' : 'enemy'); return }
       this.finish(ownedAllies >= ownedEnemies ? 'ally' : 'enemy')
     }
@@ -2457,7 +2675,7 @@ export class Game {
     if ((this.parachuting || this.playerTransportPassenger || this.playerMortar || this.playerEmplacement || this.playerMG) && this.camera.fov !== 72) this.resetCameraView()
     this.updateGrenadeCook(dt, time); this.updateConstructionRisers(time); if (!this.dead) { this.updateBandage(time); this.updateSupplyAction(time); this.updateBuildAction(time) }
     if (!this.dead) { if (this.parachuting) this.updateParachute(dt); else if (this.playerPlane) { const plane = this.playerPlane; if (plane.root.position.y < 2.25) this.hurtPlayer(999, plane.root.position, `${plane.name} · 驾驶失事坠毁`); if (!this.dead) this.updatePlayerPlane(dt) } else if (this.playerTank) this.updatePlayerTank(dt); else if (this.playerTransportPassenger) this.updatePlayerTransportPassenger(); else if (this.playerTransport) this.updatePlayerTransport(dt); else if (this.playerMortar) this.updatePlayerMortar(dt); else if (this.playerEmplacement) this.updatePlayerEmplacement(); else if (this.playerMG) this.updatePlayerMachineGun(dt); else this.updatePlayer(dt, time) } else this.updatePlayerDowned(time)
-    this.updateBots(dt, time); if (this.matchOver) return; this.updateTanks(dt, time); this.updateTransports(dt, time); this.updateEmplacements(time); this.updateMachineGuns(dt, time); this.updatePlanes(dt, time); this.updatePlaneWrecks(dt, time); this.updateBailedPilots(dt, time); if (this.matchOver) return; this.updateObjectives(dt); if (this.matchOver) return; this.updateGrenades(dt, time); this.updateCannonShells(dt); this.updateArtillery(time); this.updateSmoke(dt, time); this.updateSuppression(dt); this.updateMedkits(time); this.updateEquipment(time); this.updateTactical(time); this.updateWeather(dt, time); this.sky.update(dt); this.updateCorpses(dt); this.updateParticles(dt); this.updateCasings(dt); if (this.squadMarker.visible) { this.squadMarker.rotation.y += dt * 2.2; this.squadMarker.position.y = 2.8 + Math.sin(time * 3) * .22 } const squad = this.bots.filter(bot => bot.inSquad); this.events.squad(squad.filter(bot => bot.alive).length, squad.length, this.squadMode === 'follow' ? '跟随中' : '进攻标记位置')
+    this.updateBots(dt, time); if (this.matchOver) return; this.updateTanks(dt, time); this.updateTransports(dt, time); this.updateEmplacements(time); this.updateMachineGuns(dt, time); this.updatePlanes(dt, time); this.updatePlaneWrecks(dt, time); this.updateBailedPilots(dt, time); if (this.matchOver) return; this.updateObjectives(dt); if (this.matchOver) return; this.updateGrenades(dt, time); this.updateCannonShells(dt); this.updateArtillery(time); this.updateSmoke(dt, time); this.updateSuppression(dt); this.updateMedkits(time); this.updateEquipment(time); this.updateTactical(time); this.updateWeather(dt, time); this.sky.update(dt, this.camera.position); this.updateCorpses(dt); this.updateParticles(dt); this.updateCasings(dt); if (this.squadMarker.visible) { this.squadMarker.rotation.y += dt * 2.2; this.squadMarker.position.y = 2.8 + Math.sin(time * 3) * .22 } const squad = this.bots.filter(bot => bot.inSquad); this.events.squad(squad.filter(bot => bot.alive).length, squad.length, this.squadMode === 'move' ? '执行进攻指令' : '自主作战')
   }
   private resetCameraView(fov = 72) { this.camera.fov = fov; this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ'); this.camera.updateProjectionMatrix() }
   private resize() { this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix(); this.renderer.setSize(innerWidth, innerHeight, false) }

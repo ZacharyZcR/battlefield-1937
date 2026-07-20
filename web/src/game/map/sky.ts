@@ -16,6 +16,7 @@ function cloudTexture() {
 
 export class SkyDome {
   private material: THREE.ShaderMaterial
+  private dome: THREE.Mesh
   private sun: THREE.Sprite
   private clouds: THREE.Sprite[] = []
   private cloudMaterial: THREE.SpriteMaterial
@@ -25,8 +26,8 @@ export class SkyDome {
     const horizon = new THREE.Color(fog).lerp(new THREE.Color(0xcfc0a0), .24), top = new THREE.Color(background).multiplyScalar(.7).lerp(new THREE.Color(theme === 'alpine' ? 0x50697c : 0x39485a), .5)
     const dim = storm ? .52 : overcast ? .7 : 1, grey = new THREE.Color(0x6e7378)
     if (dim < 1) { horizon.multiplyScalar(dim).lerp(grey.clone().multiplyScalar(dim), .28); top.multiplyScalar(dim).lerp(grey.clone().multiplyScalar(dim * .8), .28) }
-    this.material = new THREE.ShaderMaterial({ side: THREE.BackSide, depthWrite: false, uniforms: { topColor: { value: top }, horizonColor: { value: horizon } }, vertexShader: 'varying vec3 vPos; void main(){ vPos = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }', fragmentShader: 'uniform vec3 topColor; uniform vec3 horizonColor; varying vec3 vPos; void main(){ float h = clamp(normalize(vPos).y, 0.0, 1.0); gl_FragColor = vec4(mix(horizonColor, topColor, pow(h, 0.55)), 1.0); }' })
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(400, 28, 14), this.material); dome.frustumCulled = false; dome.renderOrder = -10; scene.add(dome)
+    this.material = new THREE.ShaderMaterial({ side: THREE.BackSide, depthWrite: false, depthTest: false, uniforms: { topColor: { value: top }, horizonColor: { value: horizon } }, vertexShader: 'varying vec3 vPos; void main(){ vPos = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }', fragmentShader: 'uniform vec3 topColor; uniform vec3 horizonColor; varying vec3 vPos; void main(){ float h = clamp(normalize(vPos).y, 0.0, 1.0); gl_FragColor = vec4(mix(horizonColor, topColor, pow(h, 0.55)), 1.0); }' })
+    this.dome = new THREE.Mesh(new THREE.SphereGeometry(320, 32, 16), this.material); this.dome.frustumCulled = false; this.dome.renderOrder = -100; scene.add(this.dome)
     this.sun = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture('rgba(255,250,235,1)', 'rgba(255,242,208,.85)'), color: 0xfff2d0, transparent: true, opacity: overcast ? 0 : .95, fog: false, depthWrite: false }))
     this.sun.position.set(-38, 65, 25).normalize().multiplyScalar(360); this.sun.scale.setScalar(52); this.sun.frustumCulled = false; this.sun.visible = !overcast; scene.add(this.sun)
     this.cloudMaterial = new THREE.SpriteMaterial({ map: cloudTexture(), color: storm ? 0x484c52 : overcast ? 0x878b8f : 0xf4f1e8, transparent: true, opacity: overcast ? .82 : .58, depthWrite: false })
@@ -37,7 +38,8 @@ export class SkyDome {
     }
   }
 
-  update(dt: number) {
+  update(dt: number, cameraPosition?: THREE.Vector3) {
+    if (cameraPosition) this.dome.position.set(cameraPosition.x, 0, cameraPosition.z)
     for (const cloud of this.clouds) { cloud.position.x += dt * (.3 + (cloud.position.y % 7) * .06); if (cloud.position.x > 300) cloud.position.x = -300 }
   }
 }

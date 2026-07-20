@@ -76,12 +76,8 @@ export class CombatTargets {
     }
     if (data.blockLOS) return true
     if (data.structure) return true
-    if (data.urbanBuilding) {
-      if (mesh === data.urbanBuilding.body) return true
-      const details = data.urbanBuilding.details
-      if (details?.includes(mesh)) return false
-      return true
-    }
+    if (data.urbanBuilding && mesh === data.urbanBuilding.body) return true
+    // 城市楼的 details 里既有整面承重墙也有梯档/窗框小件，落到下面的尺寸测试区分，不能一律排除
     if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere()
     const radius = mesh.geometry.boundingSphere?.radius ?? 0
     const scale = Math.max(mesh.scale.x, mesh.scale.y, mesh.scale.z)

@@ -42,6 +42,8 @@ export class MapBuilder {
   private roadPath: { x: number; z: number }[] = []
   private batches = new Map<string, { geometry: THREE.BufferGeometry; material: THREE.Material; matrices: THREE.Matrix4[]; colors: (THREE.Color | undefined)[]; cast: boolean; receive: boolean }>()
   readonly minimapFeatures: MinimapFeatures = { roads: [], water: [], buildings: [], walls: [], rails: [] }
+  /** 地面网格（城市平板或起伏地形），build() 后可用，供子弹/视线遮挡检测（不进 coverMeshes，避免影响掩体逻辑）。 */
+  ground?: THREE.Mesh
 
   constructor(context: MapBuilderContext) {
     this.scene = context.scene
@@ -97,7 +99,7 @@ export class MapBuilder {
     this.batches.clear()
   }
   private cover(s: [number, number, number], p: [number, number, number], c: number) {
-    const mesh = this.box(s, p, c); this.colliders.push({ minX: p[0] - s[0] / 2, maxX: p[0] + s[0] / 2, minZ: p[2] - s[2] / 2, maxZ: p[2] + s[2] / 2 }); this.coverMeshes.push(mesh); this.markCollidersDirty(); return mesh
+    const mesh = this.box(s, p, c), collider = { minX: p[0] - s[0] / 2, maxX: p[0] + s[0] / 2, minZ: p[2] - s[2] / 2, maxZ: p[2] + s[2] / 2 }; mesh.userData.collider = collider; this.colliders.push(collider); this.coverMeshes.push(mesh); this.markCollidersDirty(); return mesh
   }
   battlefieldHalfWidth() { return this.mapBounds.halfWidth }
   private rotatedAabb(x: number, z: number, halfW: number, halfD: number, face: number): Collider {
@@ -113,32 +115,82 @@ export class MapBuilder {
     return Math.max(0, .45 + wave * .3) * edgeFade * laneFade
   }
   build() {
-    const theme = this.campaign.theme, palette = { delta: [0x50554c, 0x303331, 0x685f54], ruin: [0x595751, 0x393936, 0x625b54], canal: [0x696653, 0x46453f, 0x776b58], green: [0x4e6048, 0x343c31, 0x696754], loess: [0x806c4e, 0x594b3c, 0x826f57], jungle: [0x3d5842, 0x29382e, 0x55634d], alpine: [0x59645d, 0x39413d, 0x67675f] }[theme], urban = theme === 'delta' || theme === 'ruin' || theme === 'canal'
-    if (urban) this.box([110, .3, 130], [0, -.18, 0], palette[0], this.scene, 16); else { const geometry = new THREE.PlaneGeometry(110, 130, 44, 52), positions = geometry.getAttribute('position') as THREE.BufferAttribute; for (let index = 0; index < positions.count; index++) positions.setZ(index, this.terrainHeight(positions.getX(index), -positions.getY(index))); positions.needsUpdate = true; geometry.computeVertexNormals(); const ground = new THREE.Mesh(geometry, this.mat(palette[0], .88, 16)); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; this.scene.add(ground) }
+    const theme = this.campaign.theme, palette = { delta: [0x50554c, 0x303331, 0x685f54], ruin: [0x595751, 0x393936, 0x625b54], canal: [0x696653, 0x46453f, 0x776b58], green: [0x4e6048, 0x343c31, 0x696754], loess: [0x806c4e, 0x594b3c, 0x826f57], jungle: [0x3d5842, 0x29382e, 0x55634d], alpine: [0x59645d, 0x39413d, 0x67675f] }[theme], urban = theme === 'delta' || theme === 'ruin' || theme === 'canal', mapWidth = this.mapBounds.halfWidth * 2 + 24, mapDepth = this.mapBounds.halfDepth * 2 + 14
+    if (urban) this.ground = this.box([mapWidth, .3, mapDepth], [0, -.18, 0], palette[0], this.scene, 16); else { const geometry = new THREE.PlaneGeometry(mapWidth, mapDepth, 52, 72), positions = geometry.getAttribute('position') as THREE.BufferAttribute; for (let index = 0; index < positions.count; index++) positions.setZ(index, this.terrainHeight(positions.getX(index), -positions.getY(index))); positions.needsUpdate = true; geometry.computeVertexNormals(); const ground = new THREE.Mesh(geometry, this.mat(palette[0], .88, 16)); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; this.scene.add(ground); this.ground = ground }
     const road = this.campaign.layout?.road ?? 'straight', halfDepth = this.mapBounds.halfDepth
     if (road === 's-curve') { const jitter = () => (this.rng() - .5) * 6; this.roadPath = [{ x: 0, z: halfDepth }, { x: -8 + jitter(), z: 20 }, { x: 8 + jitter(), z: -12 }, { x: 0, z: -halfDepth }]; for (let index = 0; index < this.roadPath.length - 1; index++) this.fieldRoad(this.roadPath[index].x, this.roadPath[index].z, this.roadPath[index + 1].x, this.roadPath[index + 1].z, 6.5, palette[1]); this.minimapFeatures.roads.push({ points: this.roadPath.map(point => ({ ...point })), width: 6.5 }) }
-    else { const roadX = road === 'rail-side' ? 6 : 0; this.box([15, .06, 130], [roadX, .01, 0], palette[1]); this.box([110, .06, 10], [0, .02, -18], palette[1]); this.minimapFeatures.roads.push({ points: [{ x: roadX, z: -halfDepth }, { x: roadX, z: halfDepth }], width: 15 }, { points: [{ x: -55, z: -18 }, { x: 55, z: -18 }], width: 10 }) }
+    else { const roadX = road === 'rail-side' ? 6 : 0; this.box([15, .06, mapDepth], [roadX, .01, 0], palette[1]); this.box([mapWidth, .06, 10], [0, .02, -18], palette[1]); this.minimapFeatures.roads.push({ points: [{ x: roadX, z: -halfDepth }, { x: roadX, z: halfDepth }], width: 15 }, { points: [{ x: -this.mapBounds.halfWidth, z: -18 }, { x: this.mapBounds.halfWidth, z: -18 }], width: 10 }) }
+    if (this.campaign.id === 'songhu') {
+      for (const x of [-20, 22]) { this.box([7, .065, mapDepth], [x, .015, 0], palette[1]); this.minimapFeatures.roads.push({ points: [{ x, z: -halfDepth }, { x, z: halfDepth }], width: 7 }) }
+      for (const z of [-102, -58, -14, 30, 74, 112]) { this.box([mapWidth, .065, 6.5], [0, .02, z], palette[1]); this.minimapFeatures.roads.push({ points: [{ x: -this.mapBounds.halfWidth, z }, { x: this.mapBounds.halfWidth, z }], width: 6.5 }) }
+    }
     if (urban) this.urbanMap(palette)
     else this.naturalMap(theme, palette)
     this.campaignLandmarks()
-    if (theme === 'delta' || theme === 'canal' || theme === 'loess') { for (const x of [-2.35, 2.35]) { this.box([.09, .06, 130], [x, .08, 0], 0x777d77); for (let z = -60; z < 61; z += 2.8) this.instance('sleeper', sleeperGeometry, this.mat(0x3f3025, .88, 1), new THREE.Matrix4().makeTranslation(x, .025, z), undefined, false, true); this.minimapFeatures.rails.push({ x1: x, z1: -60, x2: x, z2: 60 }) } }
+    this.battlefieldCover(urban, palette)
+    if (theme === 'delta' || theme === 'canal' || theme === 'loess') { for (const x of [-2.35, 2.35]) { this.box([.09, .06, mapDepth], [x, .08, 0], 0x777d77); for (let z = -halfDepth; z <= halfDepth; z += 2.8) this.instance('sleeper', sleeperGeometry, this.mat(0x3f3025, .88, 1), new THREE.Matrix4().makeTranslation(x, .025, z), undefined, false, true); this.minimapFeatures.rails.push({ x1: x, z1: -halfDepth, x2: x, z2: halfDepth }) } }
     for (const z of [32, 2, -33]) for (let row = 0; row < 2; row++) for (let i = 0; i < (row ? 5 : 7); i++) this.cover([1.45, .42, .55], [(i - (row ? 2 : 3)) * 1.1, .23 + row * .42, z], row ? 0x655845 : 0x75664d)
     const stoneDepth = this.mapBounds.halfDepth - 3
     for (let i = 0; i < 28; i++) { const sx = .4 + this.rng(), sy = .15 + this.rng() * .6, sz = .4 + this.rng(), px = -7 + this.rng() * 14, pz = -stoneDepth + this.rng() * stoneDepth * 2; this.instance('stone', stoneGeometry, this.mat(theme === 'green' || theme === 'jungle' ? 0x37402f : 0x4b4035, .88, 1), new THREE.Matrix4().compose(new THREE.Vector3(px, .1, pz), identityQuaternion, new THREE.Vector3(sx, sy, sz)), undefined, false, true) }
+    if (urban) this.urbanBackdrop(palette)
+    this.ensureGroundCoverColliders()
     this.flushInstances()
   }
+  private ensureGroundCoverColliders() {
+    const bounds = new THREE.Box3(), size = new THREE.Vector3(), center = new THREE.Vector3()
+    for (const mesh of this.coverMeshes) {
+      bounds.setFromObject(mesh); bounds.getSize(size); bounds.getCenter(center)
+      if (size.x < .12 || size.z < .12 || bounds.min.y > this.terrainHeight(center.x, center.z) + .68) continue
+      const collider = { minX: bounds.min.x, maxX: bounds.max.x, minZ: bounds.min.z, maxZ: bounds.max.z }
+      const covered = this.colliders.some(existing => existing.minX <= collider.minX + .08 && existing.maxX >= collider.maxX - .08 && existing.minZ <= collider.minZ + .08 && existing.maxZ >= collider.maxZ - .08)
+      if (!covered) this.colliders.push(collider)
+      mesh.userData.collider ??= collider
+    }
+    this.markCollidersDirty()
+  }
+  private urbanBackdrop(palette: number[]) {
+    const geometry = stoneGeometry, material = this.mat(palette[2] - 0x10100c, .95, 8), position = new THREE.Vector3(), scale = new THREE.Vector3()
+    for (const side of [-1, 1]) for (let index = 0; index < 24; index++) {
+      const width = 7 + this.rng() * 10, depth = 10 + this.rng() * 18, height = 12 + this.rng() * 24, x = side * (this.mapBounds.halfWidth + 14 + this.rng() * 18), z = -this.mapBounds.halfDepth - 25 + index * (this.mapBounds.halfDepth * 2 + 50) / 23
+      this.instance('urban-backdrop', geometry, material, new THREE.Matrix4().compose(position.set(x, height / 2 - .1, z), identityQuaternion, scale.set(width, height, depth)), undefined, false, true)
+    }
+    for (const end of [-1, 1]) for (let index = 0; index < 14; index++) {
+      const width = 7 + this.rng() * 9, depth = 9 + this.rng() * 15, height = 10 + this.rng() * 22, x = -this.mapBounds.halfWidth - 15 + index * (this.mapBounds.halfWidth * 2 + 30) / 13, z = end * (this.mapBounds.halfDepth + 18 + this.rng() * 12)
+      this.instance('urban-backdrop', geometry, material, new THREE.Matrix4().compose(position.set(x, height / 2 - .1, z), identityQuaternion, scale.set(width, height, depth)), undefined, false, true)
+    }
+  }
+  private battlefieldCover(urban: boolean, palette: number[]) {
+    const place = (x: number, z: number, alongX: boolean, length: number, color: number, height: number) => {
+      const width = alongX ? length : .72, depth = alongX ? .72 : length
+      if (this.colliders.some(box => x > box.minX - width / 2 - .45 && x < box.maxX + width / 2 + .45 && z > box.minZ - depth / 2 - .45 && z < box.maxZ + depth / 2 + .45)) return false
+      const mesh = this.cover([width, height, depth], [x, this.terrainHeight(x, z) + height / 2, z], color); mesh.userData.crushable = height < 1.1; this.vehicleColliders.push(mesh.userData.collider as Collider); return true
+    }
+    for (const [index, flag] of this.campaign.flags.entries()) {
+      for (let slot = 0; slot < 10; slot++) { const angle = slot / 10 * Math.PI * 2 + index * .37, distance = flag.radius + 2.2 + slot % 2 * 2.4, height = [.78, 1.16, 1.68][(slot + index) % 3]; place(flag.x + Math.cos(angle) * distance, flag.z + Math.sin(angle) * distance, Math.abs(Math.sin(angle)) > .7, 4.8 + (slot + index) % 3 * 1.35, urban ? (slot % 2 ? 0x676158 : 0x75664f) : palette[2], height) }
+    }
+    const count = Math.round((this.mapBounds.halfDepth / 1.25 + this.mapBounds.halfWidth / 2) * (this.campaign.layout?.density ?? 1))
+    let placed = 0
+    for (let attempt = 0; attempt < count * 4 && placed < count; attempt++) {
+      const x = (this.rng() * 2 - 1) * (this.mapBounds.halfWidth - 5), z = (this.rng() * 2 - 1) * (this.mapBounds.halfDepth - 7)
+      if (this.campaign.flags.some(flag => Math.hypot(flag.x - x, flag.z - z) < 3.4)) continue
+      const heightRoll = this.rng(), height = heightRoll < .36 ? .7 + this.rng() * .16 : heightRoll < .78 ? 1.05 + this.rng() * .24 : 1.52 + this.rng() * .34
+      if (place(x, z, this.rng() > .5, 4 + this.rng() * 3.2, urban ? (placed % 2 ? 0x625b52 : 0x75664f) : palette[2], height)) placed++
+    }
+  }
   private urbanMap(palette: number[]) {
+    const rows = Math.max(9, Math.floor(this.mapBounds.halfDepth * 2 / 14)), firstZ = -(rows - 1) * 7
     for (const side of [-1, 1]) {
-      this.box([3.6, .24, 130], [side * 9.2, .1, 0], 0x77766e)
-      for (let row = 0; row < 9; row++) {
-        if (row === 3 || row === 6) continue
-        const g = new THREE.Group(), z = -54 + row * 14, w = 10 + row % 3 * 1.5, h = 8 + row % 4 * 2.1; g.position.set(side * (this.mapBounds.halfWidth * .54 + row % 2 * 2), 0, z); this.scene.add(g)
+      this.box([3.6, .24, this.mapBounds.halfDepth * 2 + 8], [side * 9.2, .1, 0], 0x77766e)
+      for (let row = 0; row < rows; row++) {
+        if (row % 4 === 3) continue
+        const g = new THREE.Group(), z = firstZ + row * 14, w = 10 + row % 3 * 1.5, h = 8 + row % 4 * 2.1; g.position.set(side * (this.mapBounds.halfWidth * .54 + row % 2 * 2), 0, z); this.scene.add(g)
         const color = row % 2 ? palette[2] : palette[2] + 0x080604, depth = 10.5, floorHeight = 3.2, upperHeight = h - floorHeight
         const body = this.box([w, upperHeight, depth], [0, floorHeight + upperHeight / 2, 0], color, g), details: THREE.Object3D[] = [], colliders: Collider[] = []
-        const wall = (size: [number, number, number], position: [number, number, number]) => { const mesh = this.box(size, position, color, g); details.push(mesh); const collider = { minX: g.position.x + position[0] - size[0] / 2, maxX: g.position.x + position[0] + size[0] / 2, minZ: z + position[2] - size[2] / 2, maxZ: z + position[2] + size[2] / 2 }; colliders.push(collider); this.colliders.push(collider); this.vehicleColliders.push(collider); return mesh }
+        const wall = (size: [number, number, number], position: [number, number, number], solid = true) => { const mesh = this.box(size, position, color, g); details.push(mesh); if (solid) { const collider = { minX: g.position.x + position[0] - size[0] / 2, maxX: g.position.x + position[0] + size[0] / 2, minZ: z + position[2] - size[2] / 2, maxZ: z + position[2] + size[2] / 2 }; colliders.push(collider); this.colliders.push(collider); this.vehicleColliders.push(collider) } return mesh }
         const faceX = -side * w / 2, rearX = side * w / 2, doorway = 2.1, facadePart = (depth - doorway) / 2
-        wall([.24, floorHeight, facadePart], [faceX, floorHeight / 2, -(doorway + facadePart) / 2]); wall([.24, floorHeight, facadePart], [faceX, floorHeight / 2, (doorway + facadePart) / 2]); wall([.24, .75, doorway], [faceX, floorHeight - .375, 0])
-        wall([.24, floorHeight, depth], [rearX, floorHeight / 2, 0]); wall([w, floorHeight, .24], [0, floorHeight / 2, -depth / 2]); wall([w, floorHeight, .24], [0, floorHeight / 2, depth / 2])
+        for (const wallX of [faceX, rearX]) { wall([.24, floorHeight, facadePart], [wallX, floorHeight / 2, -(doorway + facadePart) / 2]); wall([.24, floorHeight, facadePart], [wallX, floorHeight / 2, (doorway + facadePart) / 2]); wall([.24, .75, doorway], [wallX, floorHeight - .375, 0], false) }
+        const sidePart = (w - doorway) / 2
+        for (const wallZ of [-depth / 2, depth / 2]) { wall([sidePart, floorHeight, .24], [-(doorway + sidePart) / 2, floorHeight / 2, wallZ]); wall([sidePart, floorHeight, .24], [(doorway + sidePart) / 2, floorHeight / 2, wallZ]); wall([doorway, .75, .24], [0, floorHeight - .375, wallZ], false) }
         const fx = -side * (w / 2 + .03)
         for (let f = 1; f < Math.floor(h / 3); f++) for (const wz of [-3, 0, 3]) details.push(this.box([.08, 1.15, 1.25], [fx, 2 + f * 2.6, wz], 0x202828, g))
         details.push(this.box([.1, .7, 5.2], [fx - side * .04, 3.55, 0], row % 3 ? 0x5a3d32 : 0x625638, g)); this.box([1.4, .04, 1.8], [faceX + side * .72, .025, 0], 0x443e35, g)
@@ -151,8 +203,26 @@ export class MapBuilder {
         const building: UrbanBuilding = { root: g, body, details, colliders, ladder, platform, hp: 900, damageStage: 0, destroyed: false, height: h, rubble: [] }; for (const mesh of [body, ...details]) { mesh.userData.urbanBuilding = building; this.coverMeshes.push(mesh as THREE.Mesh) } this.urbanBuildings.push(building); this.minimapFeatures.buildings.push({ minX: g.position.x - w / 2, maxX: g.position.x + w / 2, minZ: z - depth / 2, maxZ: z + depth / 2 })
       }
     }
-    for (const alleyRow of [3, 6]) { const alleyZ = -54 + alleyRow * 14; for (const side of [-1, 1]) for (let i = -1; i <= 1; i++) { const px = side * (21 + (i % 2 ? .9 : 0)), pz = alleyZ + i * 1.3; this.box([1.2, .8, 1.2], [px, .4, pz], 0x6a675f); this.vehicleColliders.push({ minX: px - .6, maxX: px + .6, minZ: pz - .6, maxZ: pz + .6 }) } }
+    for (let alleyRow = 3; alleyRow < rows; alleyRow += 4) { const alleyZ = firstZ + alleyRow * 14; for (const side of [-1, 1]) for (let i = -1; i <= 1; i++) { const px = side * (this.mapBounds.halfWidth * .72 + (i % 2 ? .9 : 0)), pz = alleyZ + i * 1.3, crate = this.cover([1.2, .8, 1.2], [px, .4, pz], 0x6a675f); crate.userData.crushable = true; this.vehicleColliders.push(crate.userData.collider as Collider) } }
+    if (this.campaign.id === 'songhu') this.urbanSideBlocks(palette)
     const tram = new THREE.Group(); tram.position.set(2.2, 0, -7); tram.rotation.y = .12; this.scene.add(tram); const tramBody = this.box([3.1, 2.8, 7.5], [0, 1.5, 0], 0x465448, tram); this.box([3.2, .18, 7.7], [0, 3, 0], 0x252c28, tram); this.colliders.push({ minX: .2, maxX: 4.2, minZ: -11.1, maxZ: -2.9 }); this.coverMeshes.push(tramBody)
+  }
+  private urbanSideBlocks(palette: number[]) {
+    const crossStreets = [-102, -58, -14, 30, 74, 112], halfDepth = this.mapBounds.halfDepth
+    for (const side of [-1, 1]) for (let index = 0, z = -halfDepth + 18; z < halfDepth - 18; z += 18, index++) {
+      if (crossStreets.some(street => Math.abs(street - z) < 6)) continue
+      const root = new THREE.Group(), width = 8.5 + index % 2 * 1.5, depth = 11.5, floorHeight = 3.2, height = 7.5 + index % 3 * 1.7, upperHeight = height - floorHeight, x = side * (this.mapBounds.halfWidth * .82 + index % 2 * 1.2), color = index % 2 ? palette[2] : palette[2] + 0x070503
+      root.position.set(x, 0, z); this.scene.add(root)
+      const body = this.box([width, upperHeight, depth], [0, floorHeight + upperHeight / 2, 0], color, root), details: THREE.Object3D[] = [], colliders: Collider[] = [], doorway = 2.15
+      const wall = (size: [number, number, number], position: [number, number, number], solid = true) => { const mesh = this.box(size, position, color, root); details.push(mesh); if (solid) { const collider = { minX: x + position[0] - size[0] / 2, maxX: x + position[0] + size[0] / 2, minZ: z + position[2] - size[2] / 2, maxZ: z + position[2] + size[2] / 2 }; colliders.push(collider); this.colliders.push(collider); this.vehicleColliders.push(collider) } }
+      const zPart = (depth - doorway) / 2, xPart = (width - doorway) / 2
+      for (const wallX of [-width / 2, width / 2]) { wall([.24, floorHeight, zPart], [wallX, floorHeight / 2, -(doorway + zPart) / 2]); wall([.24, floorHeight, zPart], [wallX, floorHeight / 2, (doorway + zPart) / 2]); wall([.24, .72, doorway], [wallX, floorHeight - .36, 0], false) }
+      for (const wallZ of [-depth / 2, depth / 2]) { wall([xPart, floorHeight, .24], [-(doorway + xPart) / 2, floorHeight / 2, wallZ]); wall([xPart, floorHeight, .24], [(doorway + xPart) / 2, floorHeight / 2, wallZ]); wall([doorway, .72, .24], [0, floorHeight - .36, wallZ], false) }
+      for (const localZ of [-3.4, 0, 3.4]) details.push(this.box([.08, 1.05, 1.2], [-side * (width / 2 + .02), 5.05, localZ], 0x22292a, root))
+      const building: UrbanBuilding = { root, body, details, colliders, hp: 900, damageStage: 0, destroyed: false, height, rubble: [] }
+      for (const mesh of [body, ...details]) { mesh.userData.urbanBuilding = building; this.coverMeshes.push(mesh as THREE.Mesh) }
+      this.urbanBuildings.push(building); this.minimapFeatures.buildings.push({ minX: x - width / 2, maxX: x + width / 2, minZ: z - depth / 2, maxZ: z + depth / 2 })
+    }
   }
   private bridgeCanal(z: number, color = 0x35434a) {
     const y = this.terrainHeight(0, z), water = this.box([55, .06, 7.5], [0, y + .015, z], color); const material = water.material as THREE.MeshStandardMaterial; material.roughness = .22; material.metalness = .12; this.minimapFeatures.water.push({ minX: -27.5, maxX: 27.5, minZ: z - 3.75, maxZ: z + 3.75 })
@@ -186,8 +256,17 @@ export class MapBuilder {
     const root = new THREE.Group(); root.position.set(x, this.terrainHeight(x, z), z); this.scene.add(root); const body = this.box([5.2, 2.5, 4.4], [0, 1.25, 0], 0x514531, root), roof = new THREE.Mesh(new THREE.ConeGeometry(3.7, 1.45, 4), this.mat(0x343a35)); roof.position.y = 3.2; roof.rotation.y = Math.PI / 4; roof.scale.z = 1.1; root.add(roof); for (let y = .25; y < 2.5; y += .32) for (const side of [-1, 1]) this.box([5.35, .18, .18], [0, y, side * 2.18], 0x655338, root); const collider = { minX: x - 2.6, maxX: x + 2.6, minZ: z - 2.2, maxZ: z + 2.2 }; this.colliders.push(collider); this.vehicleColliders.push(collider); this.coverMeshes.push(body, roof)
   }
   private cityGate(z: number) { for (const side of [-1, 1]) { const tower = this.cover([6.5, 5.8, 4.5], [side * 7.8, 2.9, z], 0x665b50); this.box([7.1, .45, 5.1], [side * 7.8, 5.95, z], 0x373936); this.coverMeshes.push(tower); this.minimapFeatures.buildings.push({ minX: side * 7.8 - 3.25, maxX: side * 7.8 + 3.25, minZ: z - 2.25, maxZ: z + 2.25 }) } this.box([9.2, 1.1, 1.1], [0, 5.15, z], 0x5b5148) }
+  private headquarters(team: 'ally' | 'enemy') {
+    const direction = team === 'ally' ? 1 : -1, z = direction * (this.mapBounds.halfDepth - 11), cloth = team === 'ally' ? 0x526859 : 0x777151, accent = team === 'ally' ? 0x557ea8 : 0xa54c3e
+    for (const x of [-12, -5, 6, 13]) this.tent(x, z + direction * (Math.abs(x) % 3), direction < 0 ? 0 : Math.PI)
+    for (const x of [-17, 17]) this.cover([8, 1.05, .8], [x, this.terrainHeight(x, z - direction * 5) + .52, z - direction * 5], 0x75654b)
+    const command = this.box([7.4, 2.7, 5.2], [0, this.terrainHeight(0, z) + 1.35, z], cloth); this.coverMeshes.push(command); this.colliders.push({ minX: -3.7, maxX: 3.7, minZ: z - 2.6, maxZ: z + 2.6 }); this.vehicleColliders.push(this.colliders[this.colliders.length - 1])
+    const mast = this.box([.12, 6.2, .12], [4.5, this.terrainHeight(4.5, z) + 3.1, z], 0x373a35), flag = this.box([2.1, 1.05, .08], [5.5, this.terrainHeight(4.5, z) + 5.45, z], accent); this.coverMeshes.push(mast, flag)
+    for (const x of [-3, 0, 3]) this.box([1.4, .8, 1.1], [x, this.terrainHeight(x, z - direction * 4) + .4, z - direction * 4], 0x5f4d32)
+    this.minimapFeatures.buildings.push({ minX: -18, maxX: 18, minZ: z - 7, maxZ: z + 5 })
+  }
   private campaignLandmarks() {
-    if (this.campaign.id === 'songhu') { this.bridgeCanal(-20); this.cityGate(25); this.wreckTruck(18, 6, .3) }
+    if (this.campaign.id === 'songhu') { this.bridgeCanal(0); this.railLandmark(17, -43); this.wreckTruck(18, 18, .3); this.stoneWall(-21, 34, -10, 39); this.headquarters('ally'); this.headquarters('enemy') }
     else if (this.campaign.id === 'nanjing') { this.cityGate(22); this.bunker(-20, -25, Math.PI); this.church(18, -5); this.wreckTruck(-19, 5, -.2); this.ruinedBuilding(13, -12); this.ruinedBuilding(-13, 30); this.ruinedBuilding(11, 9) }
     else if (this.campaign.id === 'taierzhuang') { this.bridgeCanal(24, 0x3a4a4b); this.railLandmark(17, -27); this.stoneWall(-21, 6, -9, 9) }
     else if (this.campaign.id === 'wuhan') { this.windmill(20, -10); this.well(-18, 28); this.farmField(-19, -18); this.farmField(18, 33, 8, 6); this.barn(19, 13); this.stoneWall(-22, 8, -10, 12) }
@@ -196,7 +275,7 @@ export class MapBuilder {
     else if (this.campaign.id === 'burma') { this.bridgeCanal(4, 0x263f39); for (const z of [-38, -18, 24, 42]) this.bambooGrove(z % 3 ? 20 : -20, z); this.wreckTruck(18, -28, -.35); this.deadTree(-19, 13, true) }
     else if (this.campaign.id === 'changde') { this.cityGate(-24); this.bunker(20, 26); this.church(-18, 8); this.wreckTruck(18, -9, .25); this.ruinedBuilding(11, -12); this.ruinedBuilding(-11, 30); const wallX = this.mapBounds.halfWidth - 6; for (const side of [-1, 1]) { this.cityWall(side * wallX, -20, -4); this.cityWall(side * wallX, 4, 20) } }
     else if (this.campaign.id === 'xiangxi') { this.bunker(-19, -26, Math.PI); this.bunker(19, 23); this.well(-18, 4); this.logCabin(18, -8); this.logCabin(-19, 38); this.deadTree(20, 41, true); this.stoneWall(-22, -4, -11, 1) }
-    this.tent(-18, 50, .1); this.tent(18, -50, Math.PI + .1)
+    if (this.campaign.id !== 'songhu') { this.tent(-18, 50, .1); this.tent(18, -50, Math.PI + .1) }
   }
   private fieldRoad(ax: number, az: number, bx: number, bz: number, width: number, color: number) { const dx = bx - ax, dz = bz - az, length = Math.hypot(dx, dz), x = (ax + bx) / 2, z = (az + bz) / 2, road = this.box([width, .035, length], [x, this.terrainHeight(x, z) + .025, z], color); road.rotation.y = Math.atan2(dx, dz) }
   private nearRoad(x: number, z: number, range: number) { return this.roadPath.some((point, index) => { const next = this.roadPath[index + 1]; if (!next) return false; const dx = next.x - point.x, dz = next.z - point.z, t = THREE.MathUtils.clamp(((x - point.x) * dx + (z - point.z) * dz) / (dx * dx + dz * dz), 0, 1); return Math.hypot(x - (point.x + dx * t), z - (point.z + dz * t)) < range }) }

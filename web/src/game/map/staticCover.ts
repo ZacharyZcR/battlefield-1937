@@ -20,7 +20,8 @@ export function buildStaticCover(meshes: THREE.Mesh[]) {
   const merged = mergeGeometries(geometries, false)!
   for (const geometry of geometries) geometry.dispose()
   merged.boundsTree = new MeshBVH(merged)
-  const mesh = new THREE.Mesh(merged, new THREE.MeshBasicMaterial())
+  // DoubleSide：射线从掩体/地形内部向外射时也能命中出射面（枪口贴进坡体/沙袋时不再穿出）
+  const mesh = new THREE.Mesh(merged, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }))
   mesh.matrixAutoUpdate = false
   return mesh
 }
