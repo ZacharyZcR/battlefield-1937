@@ -29,6 +29,7 @@ export class FxPool {
   private readonly freeParticles: PooledParticle[] = []
   private readonly freeCasings: PooledCasing[] = []
   private readonly freeTracers: THREE.Line[] = []
+  private readonly activeTracers: { line: THREE.Line; born: number }[] = []
   private readonly casingGeoRifle = new THREE.CylinderGeometry(.011, .011, .052, 6)
   private readonly casingGeoPistol = new THREE.CylinderGeometry(.009, .009, .038, 6)
   private readonly casingMat = new THREE.MeshStandardMaterial({ color: 0xc4a14d, roughness: .5, metalness: .35 })
@@ -106,17 +107,15 @@ export class FxPool {
     positions.needsUpdate = true
     line.geometry.computeBoundingSphere()
     scene.add(line)
-    const born = performance.now()
-    const fade = () => {
-      const t = Math.min((performance.now() - born) / 110, 1)
-      material.opacity = (1 - t) * .72
-      if (t < 1) {
-        requestAnimationFrame(fade)
-        return
-      }
-      scene.remove(line!)
-      if (this.freeTracers.length < this.maxTracers) this.freeTracers.push(line!)
+    this.activeTracers.push({ line, born: performance.now() })
+  }
+
+  /** 统一驱动所有曳光淡出（每帧一次，替代每发一个 rAF）。 */
+  updateTracers(scene: THREE.Scene, now = performance.now()) {
+    for (let index = this.activeTracers.length - 1; index >= 0; index--) {
+      const tracer = this.activeTracers[index], t = Math.min((now - tracer.born) / 110, 1)
+      ;(tracer.line.material as THREE.LineBasicMaterial).opacity = (1 - t) * .72
+      if (t >= 1) { this.activeTracers.splice(index, 1); scene.remove(tracer.line); if (this.freeTracers.length < this.maxTracers) this.freeTracers.push(tracer.line) }
     }
-    requestAnimationFrame(fade)
   }
 }

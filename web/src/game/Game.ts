@@ -10,6 +10,7 @@ import { SkyDome } from './map/sky'
 import type { Collider, FieldStructure, Ladder, MinimapFeatures, Platform, UrbanBuilding } from './map/types'
 import { CombatTargets } from './combatTargets'
 import { FxPool } from './fxPool'
+import { buildStaticCover } from './map/staticCover'
 
 type Team = 'ally' | 'enemy'
 type TankCrewRole = 'driver' | 'gunner' | 'commander' | 'loader'
@@ -102,12 +103,20 @@ export class Game {
   private tankMgShotAt = 0
   private tankMgFiring = false
   private tankGunnerView = false
+  /** Smoothed drive inputs for vehicles (avoids binary on/off lurch). */
+  private vehicleThrottle = 0
+  private vehicleSteer = 0
+  private readonly chaseCamPos = new THREE.Vector3()
+  private readonly chaseCamLook = new THREE.Vector3()
   private objectives: Objective[] = []
   private depots: Depot[] = []
   private assaultIndex = 0
   private colliders: Collider[] = []
   private vehicleColliders: Collider[] = []
   private coverMeshes: THREE.Mesh[] = []
+  private staticCover?: THREE.Mesh
+  private staticCoverSet = new Set<THREE.Mesh>()
+  private dynamicCoverScratch: THREE.Mesh[] = []
   private botMotion = new Map<Bot, { position: THREE.Vector2; sampledAt: number; stalledFor: number }>()
   private grenadesInWorld: Grenade[] = []
   private artilleryShells: ArtilleryShell[] = []
@@ -133,6 +142,7 @@ export class Game {
   private reinforcementWaveAt: Record<Team, number> = { ally: 0, enemy: 0 }
   private deathHeat: DeathHeat[] = []
   private sun = new THREE.DirectionalLight(0xffe1b2, 3.1)
+  private sunAnchor = new THREE.Vector2(Infinity, Infinity)
   private hemi = new THREE.HemisphereLight(0xdbe1dd, 0x34372f, 1.5)
   private precipitation?: THREE.LineSegments | THREE.Points
   private snowing = false
@@ -279,9 +289,16 @@ export class Game {
       emplacements: this.emplacements,
       planes: this.planes,
       depots: this.depots,
-      coverMeshes: this.coverMeshes,
+      coverMeshes: this.dynamicCover(),
     })
   }
+  private captureStaticCover() {
+    this.staticCoverSet = new Set(this.coverMeshes.filter(mesh => !mesh.userData.urbanBuilding && !mesh.userData.structure))
+    this.staticCover = buildStaticCover([...this.staticCoverSet])
+    this.ray.firstHitOnly = true
+  }
+  private dynamicCover() { const scratch = this.dynamicCoverScratch; scratch.length = 0; for (const mesh of this.coverMeshes) if (!this.staticCoverSet.has(mesh)) scratch.push(mesh); return scratch }
+  private withStaticCover(hit: THREE.Intersection | undefined) { const staticHit = this.staticCover ? this.ray.intersectObject(this.staticCover, false)[0] : undefined; return staticHit && (!hit || staticHit.distance < hit.distance) ? staticHit : hit }
   private hitTargetsAgainst(team: Team) { return this.combatTargets.against(team) }
   private occlusionMeshes() { return this.combatTargets.occluders.length ? this.combatTargets.occluders : this.coverMeshes }
 
@@ -305,7 +322,7 @@ export class Game {
     const atmosphere = { delta: [0x737c79, 0x858d89], ruin: [0x77756e, 0x85837b], canal: [0x8b8a7e, 0x99988b], green: [0x778477, 0x899489], loess: [0x9a8769, 0xa49172], jungle: [0x536b5b, 0x647766], alpine: [0x7c8987, 0x929c99] }[campaign.theme], fogBase = { delta: .018, ruin: .02, canal: .016, green: .01, loess: .01, jungle: .02, alpine: .012 }[campaign.theme]; this.scene.fog = new THREE.FogExp2(atmosphere[1], fogBase + (campaign.weather.includes('雨') ? .004 : 0) + (campaign.weather === '雷雨' ? .002 : 0)); this.sky = new SkyDome(this.scene, atmosphere[0], atmosphere[1], campaign.theme, campaign.weather)
     this.camera.position.set(0, 1.72, Math.min(47, this.mapBounds.halfDepth - 11))
     this.mapBuilder = new MapBuilder({ scene: this.scene, campaign: this.campaign, renderer: this.renderer, mapBounds: this.mapBounds, textureCache: this.textureCache, materialCache: this.materialCache, colliders: this.colliders, vehicleColliders: this.vehicleColliders, coverMeshes: this.coverMeshes, ladders: this.ladders, platforms: this.platforms, urbanBuildings: this.urbanBuildings, fieldStructures: this.fieldStructures, markCollidersDirty: () => this.markCollidersDirty() })
-    this.lights(); this.mapBuilder.build(); this.initWeather(); for (const flag of campaign.flags) this.objective(flag.id, flag.x, flag.z, flag.radius); if (campaign.rule === 'demolition') for (const flag of campaign.flags) this.depot(flag.id, flag.x, flag.z); this.resetModeState(); this.fixedMachineGuns(); this.supply(4, 45); this.squadMarker.visible = false; this.squadMarker.renderOrder = 5; this.scene.add(this.squadMarker); this.mortarMarker.rotation.x = -Math.PI / 2; this.mortarMarker.visible = false; this.mortarMarker.renderOrder = 6; this.scene.add(this.mortarMarker); this.gun(); this.forces(); this.tank('ally'); this.tank('enemy'); this.transport('ally'); this.transport('enemy'); this.emplacement('ally', 'at', -5.5, 27); this.emplacement('enemy', 'at', 5.5, -27); this.emplacement('ally', 'aa', 6, 43); this.emplacement('enemy', 'aa', -6, -43); this.plane('ally'); this.plane('enemy'); this.input(); this.resize(); this.rebuildSpatialIndexes(); this.refreshCombatTargets(); this.loop()
+    this.lights(); this.mapBuilder.build(); this.captureStaticCover(); this.initWeather(); for (const flag of campaign.flags) this.objective(flag.id, flag.x, flag.z, flag.radius); if (campaign.rule === 'demolition') for (const flag of campaign.flags) this.depot(flag.id, flag.x, flag.z); this.resetModeState(); this.fixedMachineGuns(); this.supply(4, 45); this.squadMarker.visible = false; this.squadMarker.renderOrder = 5; this.scene.add(this.squadMarker); this.mortarMarker.rotation.x = -Math.PI / 2; this.mortarMarker.visible = false; this.mortarMarker.renderOrder = 6; this.scene.add(this.mortarMarker); this.gun(); this.forces(); this.tank('ally'); this.tank('enemy'); this.transport('ally'); this.transport('enemy'); this.emplacement('ally', 'at', -5.5, 27); this.emplacement('enemy', 'at', 5.5, -27); this.emplacement('ally', 'aa', 6, 43); this.emplacement('enemy', 'aa', -6, -43); this.plane('ally'); this.plane('enemy'); this.input(); this.resize(); this.rebuildSpatialIndexes(); this.refreshCombatTargets(); this.loop()
     this.expandVehicleForces()
     addEventListener('resize', () => this.resize())
     addEventListener('beforeunload', () => this.flushCombatLog(true))
@@ -535,8 +552,9 @@ export class Game {
   private lights() {
     const wet = this.campaign.weather.includes('雨'), overcast = wet || this.campaign.weather === '阴霾'; this.hemi.intensity = overcast ? 1.7 : 1.5; this.sun.intensity = overcast ? wet ? 2 : 1.7 : 3.1; this.scene.add(this.hemi)
     this.sun.position.set(-38, 65, 25); this.sun.castShadow = true; this.sun.shadow.mapSize.set(2048, 2048)
-    Object.assign(this.sun.shadow.camera, { left: -55, right: 55, top: 55, bottom: -55 }); this.scene.add(this.sun)
+    Object.assign(this.sun.shadow.camera, { left: -30, right: 30, top: 30, bottom: -30 }); this.sun.shadow.camera.updateProjectionMatrix(); this.scene.add(this.sun, this.sun.target)
   }
+  private updateSun() { const x = Math.round(this.camera.position.x / 8) * 8, z = Math.round(this.camera.position.z / 8) * 8; if (x === this.sunAnchor.x && z === this.sunAnchor.y) return; this.sunAnchor.set(x, z); this.sun.target.position.set(x, 0, z); this.sun.position.set(x - 38, 65, z + 25) }
   private terrainHeight(x: number, z: number) { return this.mapBuilder.terrainHeight(x, z) }
   private initWeather() {
     if (this.campaign.theme === 'alpine') {
@@ -697,14 +715,22 @@ export class Game {
     const plane: Plane = { root, hitbox, team, name: config.name, maxHp: config.maxHp, hp: config.maxHp, alive: true, playerDriven: false, abandoned: false, speed: 30, throttle: .8, angle: team === 'ally' ? 0 : Math.PI, bombs: config.bombs, maxBombs: config.bombs, nextBomb: 0, bombRearmAt: 0, stallWarned: false, nextAttack: 5 + Math.random() * 5, nextShot: 0, respawnAt: 0 }; hitbox.userData.plane = plane; this.planes.push(plane); this.reinforcePlane(plane, performance.now() / 1000)
   }
   private input() {
-    addEventListener('keydown', e => { this.keys.add(e.code); if (e.repeat) return; if (e.code === 'Space') this.jump(); if (e.code === 'KeyJ') this.toggleBrace(); if (e.code === 'Digit1') this.switchWeapon('primary'); if (e.code === 'Digit2') this.switchWeapon('sidearm'); if (e.code === 'Digit4') this.cycleGrenade(); if (e.code === 'KeyR') this.reload(); if (e.code === 'KeyG') this.beginGrenadeCook(); if (e.code === 'KeyX') this.throwSmoke(); if (e.code === 'KeyV') this.melee(); if (e.code === 'KeyH') this.heal(); if (e.code === 'KeyB') this.playerPlane ? this.dropPlaneBomb() : this.deployUtility(); if (e.code === 'Digit5') this.cycleBuild(); if (e.code === 'KeyF') this.repairTank(); if (e.code === 'KeyE') this.interact(); if (e.code === 'KeyT') this.orderSquadMove(); if (e.code === 'KeyY') this.orderSquadFollow(); if (e.code === 'KeyC' && this.playerTank) this.tankGunnerView = !this.tankGunnerView; else if (e.code === 'KeyC' && !this.jumpHeight) this.stance = this.stance === 'crouch' ? 'stand' : 'crouch'; if (e.code === 'KeyZ' && !this.playerTank && !this.jumpHeight) this.stance = this.stance === 'prone' ? 'stand' : 'prone' }); addEventListener('keyup', e => { this.keys.delete(e.code); if (e.code === 'KeyG') this.releaseGrenadeCook() })
+    addEventListener('keydown', e => { this.keys.add(e.code); if (e.repeat) return; if (e.code === 'Space') this.jump(); if (e.code === 'KeyJ') this.toggleBrace(); if (e.code === 'Digit1') this.switchWeapon('primary'); if (e.code === 'Digit2') this.switchWeapon('sidearm'); if (e.code === 'Digit4') this.cycleGrenade(); if (e.code === 'KeyR') this.reload(); if (e.code === 'KeyG') this.beginGrenadeCook(); if (e.code === 'KeyX') this.throwSmoke(); if (e.code === 'KeyV') this.melee(); if (e.code === 'KeyH') this.heal(); if (e.code === 'KeyB') this.playerPlane ? this.dropPlaneBomb() : this.deployUtility(); if (e.code === 'Digit5') this.cycleBuild(); if (e.code === 'KeyF') { if (this.playerPlane) this.leavePlane(); else this.repairTank() } if (e.code === 'KeyE') this.interact(); if (e.code === 'KeyT') this.orderSquadMove(); if (e.code === 'KeyY') this.orderSquadFollow(); if (e.code === 'KeyC' && this.playerTank) this.tankGunnerView = !this.tankGunnerView; else if (e.code === 'KeyC' && !this.jumpHeight && !this.playerPlane && !this.playerTransport && !this.playerMortar && !this.playerEmplacement && !this.playerMG) this.stance = this.stance === 'crouch' ? 'stand' : 'crouch'; if (e.code === 'KeyZ' && !this.playerTank && !this.playerPlane && !this.playerTransport && !this.jumpHeight) this.stance = this.stance === 'prone' ? 'stand' : 'prone' }); addEventListener('keyup', e => { this.keys.delete(e.code); if (e.code === 'KeyG') this.releaseGrenadeCook() })
     addEventListener('mousemove', e => {
       if (!this.active || document.pointerLockElement !== this.canvas || performance.now() < this.pointerLockGraceUntil) return
       if (!this.pointerMovementReady) { this.pointerMovementReady = true; return }
-      const rawX = Number.isFinite(e.movementX) ? e.movementX : 0, rawY = Number.isFinite(e.movementY) ? e.movementY : 0, magnitude = Math.hypot(rawX, rawY), maxMovement = .12 / this.sensitivity, scale = magnitude > maxMovement ? maxMovement / magnitude : 1, movementX = rawX * scale, movementY = rawY * scale, zoomScale = this.aiming ? this.camera.fov / 72 : 1
+      const rawX = Number.isFinite(e.movementX) ? e.movementX : 0, rawY = Number.isFinite(e.movementY) ? e.movementY : 0, magnitude = Math.hypot(rawX, rawY), maxMovement = .12 / this.sensitivity, scale = magnitude > maxMovement ? maxMovement / magnitude : 1, movementX = rawX * scale, movementY = rawY * scale
+      // Infantry ADS slows look; vehicle freelook is slightly softer; gunner optic a bit tighter; plane stick a bit livelier.
+      const lookScale = this.playerPlane ? 1.15 : this.playerTank || this.playerTransport ? (this.tankGunnerView ? .72 : .82) : this.aiming ? this.camera.fov / 72 : 1
+      const sens = this.sensitivity * lookScale
       if (this.dead) { this.downedFreeLook = true; this.yaw -= movementX * this.sensitivity; this.pitch = THREE.MathUtils.clamp(this.pitch - movementY * this.sensitivity, -.85, .85); this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ'); return }
-      if (this.playerPlane) this.planeStickPitch = THREE.MathUtils.clamp(this.planeStickPitch - movementY * this.sensitivity * zoomScale, -1, .95)
-      else { this.yaw -= movementX * this.sensitivity * zoomScale; this.pitch = THREE.MathUtils.clamp(this.pitch - movementY * this.sensitivity * zoomScale, -1.35, 1.35) }
+      if (this.playerPlane) {
+        this.planeStickPitch = THREE.MathUtils.clamp(this.planeStickPitch - movementY * sens, -1, .95)
+        this.yaw -= movementX * sens * .55
+      } else {
+        this.yaw -= movementX * sens
+        this.pitch = THREE.MathUtils.clamp(this.pitch - movementY * sens, -1.35, 1.35)
+      }
     })
     addEventListener('mousedown', e => { if (!this.active || this.dead) return; if (document.pointerLockElement !== this.canvas) { this.canvas.requestPointerLock(); return } if (e.button === 0 && (!this.playerTransport || this.playerTransportPassenger)) { this.firing = true; this.playerTank ? this.firePlayerTank() : this.playerMortar ? this.fireMortar() : this.playerEmplacement ? this.fireEmplacement() : this.playerMG ? this.fireMachineGun() : this.fire() } if (e.button === 2 && this.playerTank) { this.tankMgFiring = true; this.firePlayerTankMg() } else if (e.button === 2 && this.playerPlane) this.dropPlaneBomb(); else if (e.button === 2 && (!this.playerTransport || this.playerTransportPassenger) && !this.playerMortar && !this.playerEmplacement && !this.playerMG) { this.aiming = true; this.events.aim(true) } })
     addEventListener('mouseup', e => { if (e.button === 0) this.firing = false; if (e.button === 2) { this.tankMgFiring = false; this.aiming = false; this.events.aim(false) } }); addEventListener('contextmenu', e => e.preventDefault()); addEventListener('pointerlockchange', () => { this.pointerMovementReady = false; this.pointerLockGraceUntil = performance.now() + 180; if (document.pointerLockElement !== this.canvas) { this.releaseGrenadeCook(); this.firing = false; this.tankMgFiring = false; this.aiming = false; this.events.aim(false) } })
@@ -714,14 +740,14 @@ export class Game {
     if (this.playerPlane) { this.firePlayerPlane(); return }
     const weapon = this.activeLoadout()
     const now = performance.now(); if (this.buildAction || this.bandagingUntil || this.supplyAction || this.loading || !this.mag || now < this.nextPlayerShot) return; this.nextPlayerShot = now + 60000 / weapon.rpm; this.shotAt = now / 1000; this.mag--; this.recoil = weapon.recoil * (this.braced ? .45 : this.stance === 'prone' ? .7 : 1); this.events.ammo(this.mag, this.reserve, false); if (weapon.kind === 'bolt') this.cycleBolt(); this.ray.setFromCamera(this.weaponShotOffset(weapon), this.camera)
-    const targets = this.hitTargetsAgainst('enemy'), hit = this.ray.intersectObjects(targets, false)[0], bot = hit?.object.userData.bot as Bot | undefined, tankCrewHit = hit?.object.userData.tankCrew as { tank: Tank; crew: TankCrew } | undefined, tank = hit?.object.userData.tank as Tank | undefined, transport = hit?.object.userData.transport as Transport | undefined, emplacement = hit?.object.userData.emplacement as Emplacement | undefined, plane = hit?.object.userData.plane as Plane | undefined, depot = hit?.object.userData.depot as Depot | undefined, structure = hit?.object.userData.structure as FieldStructure | undefined, urbanBuilding = hit?.object.userData.urbanBuilding as UrbanBuilding | undefined, start = this.playerMuzzle.getWorldPosition(this.tmpV3A), end = hit?.point ?? this.ray.ray.at(100, this.tmpV3B); this.tracer(start, end, 0xffd67a); this.ejectCasing(); this.audio.shot(weapon.kind); this.alertBots('ally', this.camera.position); if (hit) this.impactFx(end, Boolean(bot || tankCrewHit))
+    const targets = this.hitTargetsAgainst('enemy'), hit = this.withStaticCover(this.ray.intersectObjects(targets, false)[0]), bot = hit?.object.userData.bot as Bot | undefined, tankCrewHit = hit?.object.userData.tankCrew as { tank: Tank; crew: TankCrew } | undefined, tank = hit?.object.userData.tank as Tank | undefined, transport = hit?.object.userData.transport as Transport | undefined, emplacement = hit?.object.userData.emplacement as Emplacement | undefined, plane = hit?.object.userData.plane as Plane | undefined, depot = hit?.object.userData.depot as Depot | undefined, structure = hit?.object.userData.structure as FieldStructure | undefined, urbanBuilding = hit?.object.userData.urbanBuilding as UrbanBuilding | undefined, start = this.playerMuzzle.getWorldPosition(this.tmpV3A), end = hit?.point ?? this.ray.ray.at(100, this.tmpV3B); this.tracer(start, end, 0xffd67a); this.ejectCasing(); this.audio.shot(weapon.kind); this.alertBots('ally', this.camera.position); if (hit) this.impactFx(end, Boolean(bot || tankCrewHit))
     this.suppressBots(start, end)
     if (tankCrewHit) { this.damageTankCrew(tankCrewHit.tank, tankCrewHit.crew, weapon.damage * weapon.headMultiplier, true, true); return } if (!bot && !tank && !transport && !emplacement && !plane && !depot && !structure && !urbanBuilding) { if (hit && Math.random() < .3) { const sound = this.soundAt(end); this.audio.ricochet(sound.volume, sound.pan) } return } this.audio.click(tank || transport || emplacement || plane || depot || structure || urbanBuilding ? 520 : 1250, tank || transport || emplacement || plane || depot || structure || urbanBuilding ? .075 : .045); if (urbanBuilding) { this.damageUrbanBuilding(urbanBuilding, weapon.damage * .08); return } if (structure) { this.damageStructure(structure, weapon.vehicleDamage ? weapon.vehicleDamage * .7 : weapon.damage * .22); return } if (depot) { this.damageDepot(depot, weapon.vehicleDamage ? weapon.vehicleDamage * .6 : weapon.damage * .42, true); return } if (plane) { this.damagePlane(plane, weapon.vehicleDamage ? weapon.vehicleDamage * .8 : weapon.damage * .55, true); return } if (emplacement) { this.damageEmplacement(emplacement, weapon.vehicleDamage ? weapon.vehicleDamage * .9 : weapon.damage * .65, true); return } if (transport) { this.damageTransport(transport, weapon.vehicleDamage ? weapon.vehicleDamage * .85 : Math.max(4, weapon.damage * .14), true); return } if (tank) { this.damageTank(tank, weapon.vehicleDamage ?? Math.max(2, weapon.damage * .06), true, hit?.point, weapon.armorPen, this.ray.ray.direction); return } if (!bot) return; const headshot = hit?.object.userData.hitZone === 'head', falloff = THREE.MathUtils.clamp(1 - Math.max(0, (hit?.distance ?? 0) - 35) * .003, .72, 1), damage = weapon.damage * falloff * (headshot ? weapon.headMultiplier : 1), dealt = Math.min(bot.hp, damage); bot.hp -= damage; const killed = bot.hp <= 0; this.events.hit(killed, headshot, dealt); if (killed) this.kill(bot, headshot, this.ray.ray.direction)
   }
   private melee() {
     if (this.parachuting) return
     if (this.playerEmplacement) return
-    const time = performance.now() / 1000; if (this.dead || this.buildAction || this.bandagingUntil || this.supplyAction || this.playerTank || this.playerTransport || this.playerMortar || this.playerMG || this.loading || time < this.meleeCooldown) return; this.meleeCooldown = time + .75; this.meleeAt = time; this.aiming = false; this.events.aim(false); this.audio.click(1350, .08); this.ray.setFromCamera(new THREE.Vector2(), this.camera); const hit = this.ray.intersectObjects(this.hitTargetsAgainst('enemy'), false)[0]; if (!hit || hit.distance > 2.7) return; const bot = hit.object.userData.bot as Bot; if (!bot || bot.team !== 'enemy') return; const dealt = Math.min(bot.hp, 125); bot.hp -= 125; this.impactFx(hit.point, true); const killed = bot.hp <= 0; this.events.hit(killed, hit.object.userData.hitZone === 'head', dealt); if (killed) this.kill(bot, hit.object.userData.hitZone === 'head')
+    const time = performance.now() / 1000; if (this.dead || this.buildAction || this.bandagingUntil || this.supplyAction || this.playerTank || this.playerTransport || this.playerMortar || this.playerMG || this.loading || time < this.meleeCooldown) return; this.meleeCooldown = time + .75; this.meleeAt = time; this.aiming = false; this.events.aim(false); this.audio.click(1350, .08); this.ray.setFromCamera(new THREE.Vector2(), this.camera); const hit = this.withStaticCover(this.ray.intersectObjects(this.hitTargetsAgainst('enemy'), false)[0]); if (!hit || hit.distance > 2.7) return; const bot = hit.object.userData.bot as Bot; if (!bot || bot.team !== 'enemy') return; const dealt = Math.min(bot.hp, 125); bot.hp -= 125; this.impactFx(hit.point, true); const killed = bot.hp <= 0; this.events.hit(killed, hit.object.userData.hitZone === 'head', dealt); if (killed) this.kill(bot, hit.object.userData.hitZone === 'head')
   }
   private cycleGrenade() {
     if (this.dead || this.buildAction || this.grenadeCooking || this.selectedLoadout.id !== 'anti-tank') return
@@ -857,7 +883,7 @@ export class Game {
   private enterMachineGun(machineGun: MachineGun) { if (machineGun.operator) { machineGun.operator.machineGun = undefined; machineGun.operator = undefined } this.playerMG = machineGun; machineGun.occupied = true; this.weapon.visible = false; this.aiming = false; this.events.aim(false); this.camera.position.copy(machineGun.position).add(new THREE.Vector3(0, 1.45, 0)); this.status = '重机枪已就位'; this.statusUntil = performance.now() / 1000 + 1.2 }
   private leaveMachineGun() { const machineGun = this.playerMG; if (!machineGun) return; machineGun.occupied = false; this.playerMG = undefined; this.weapon.visible = true; this.camera.position.copy(machineGun.position).add(new THREE.Vector3(1.1, 1.72, 0)); this.events.loadout(this.activeLoadout()); this.events.ammo(this.mag, this.reserve, false) }
   private fireMachineGun() {
-    const machineGun = this.playerMG, now = performance.now(); if (!machineGun || !machineGun.ammo || machineGun.heat >= 1 || now < this.mgShotAt) return; this.mgShotAt = now + 60000 / 650; machineGun.ammo--; machineGun.heat = Math.min(1, machineGun.heat + .018); this.ray.setFromCamera(new THREE.Vector2((Math.random() - .5) * (.009 + machineGun.heat * .014), (Math.random() - .5) * (.009 + machineGun.heat * .014)), this.camera); const hit = this.ray.intersectObjects(this.hitTargetsAgainst('enemy'), false)[0], bot = hit?.object.userData.bot as Bot | undefined, tank = hit?.object.userData.tank as Tank | undefined, depot = hit?.object.userData.depot as Depot | undefined, start = machineGun.muzzle.getWorldPosition(new THREE.Vector3()), end = hit?.point ?? this.ray.ray.at(120, new THREE.Vector3()); this.tracer(start, end, 0xffdf82); const flash = new THREE.Mesh(new THREE.SphereGeometry(.11, 7, 5), new THREE.MeshBasicMaterial({ color: 0xffbd55 })); flash.position.copy(start); this.scene.add(flash); setTimeout(() => { this.scene.remove(flash); flash.geometry.dispose(); (flash.material as THREE.Material).dispose() }, 45); this.audio.shot('auto'); if (bot) { const headshot = hit?.object.userData.hitZone === 'head', shotDamage = headshot ? 46 : 25, dealt = Math.min(bot.hp, shotDamage); bot.hp -= shotDamage; const killed = bot.hp <= 0; this.events.hit(killed, headshot, dealt); if (killed) this.kill(bot, headshot) } else if (tank) this.damageTank(tank, 3, true); else if (depot) this.damageDepot(depot, 7, true)
+    const machineGun = this.playerMG, now = performance.now(); if (!machineGun || !machineGun.ammo || machineGun.heat >= 1 || now < this.mgShotAt) return; this.mgShotAt = now + 60000 / 650; machineGun.ammo--; machineGun.heat = Math.min(1, machineGun.heat + .018); this.ray.setFromCamera(new THREE.Vector2((Math.random() - .5) * (.009 + machineGun.heat * .014), (Math.random() - .5) * (.009 + machineGun.heat * .014)), this.camera); const hit = this.withStaticCover(this.ray.intersectObjects(this.hitTargetsAgainst('enemy'), false)[0]), bot = hit?.object.userData.bot as Bot | undefined, tank = hit?.object.userData.tank as Tank | undefined, depot = hit?.object.userData.depot as Depot | undefined, start = machineGun.muzzle.getWorldPosition(new THREE.Vector3()), end = hit?.point ?? this.ray.ray.at(120, new THREE.Vector3()); this.tracer(start, end, 0xffdf82); const flash = new THREE.Mesh(new THREE.SphereGeometry(.11, 7, 5), new THREE.MeshBasicMaterial({ color: 0xffbd55 })); flash.position.copy(start); this.scene.add(flash); setTimeout(() => { this.scene.remove(flash); flash.geometry.dispose(); (flash.material as THREE.Material).dispose() }, 45); this.audio.shot('auto'); if (bot) { const headshot = hit?.object.userData.hitZone === 'head', shotDamage = headshot ? 46 : 25, dealt = Math.min(bot.hp, shotDamage); bot.hp -= shotDamage; const killed = bot.hp <= 0; this.events.hit(killed, headshot, dealt); if (killed) this.kill(bot, headshot) } else if (tank) this.damageTank(tank, 3, true); else if (depot) this.damageDepot(depot, 7, true)
   }
   private updatePlayerMachineGun(dt: number) { const machineGun = this.playerMG; if (!machineGun) return; if (this.firing) this.fireMachineGun(); machineGun.heat = Math.max(0, machineGun.heat - dt * (this.firing ? .035 : .2)); this.camera.position.copy(machineGun.position).add(new THREE.Vector3(0, 1.45, 0)); this.pitch = THREE.MathUtils.clamp(this.pitch, -.45, .3); this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ'); machineGun.yaw.rotation.y = this.yaw - machineGun.root.rotation.y; machineGun.pitch.rotation.x = this.pitch; this.events.ammo(machineGun.ammo, 0, machineGun.heat >= 1); this.events.loadout({ ...this.selectedLoadout, weapon: '二四式重机枪', mode: machineGun.heat >= 1 ? '枪管过热' : `固定火力 · 热量 ${Math.round(machineGun.heat * 100)}%` }) }
   private updateMachineGuns(dt: number, time: number) {
@@ -879,7 +905,7 @@ export class Game {
       const dx = target.position.x - machineGun.position.x, dz = target.position.z - machineGun.position.z, distance = Math.hypot(dx, dz), worldYaw = Math.atan2(dx, dz) + Math.PI; machineGun.yaw.rotation.y = worldYaw - machineGun.root.rotation.y; machineGun.pitch.rotation.x = -THREE.MathUtils.clamp(Math.atan2(target.position.y + (target.bot ? 1.2 : 0) - machineGun.root.position.y, distance), -.3, .35); operator.root.rotation.y = worldYaw
       if (machineGun.heat >= 1 || time < machineGun.nextShot || !machineGun.ammo) continue
       machineGun.nextShot = time + .095; machineGun.ammo--; machineGun.heat = Math.min(1, machineGun.heat + .018)
-      const start = machineGun.muzzle.getWorldPosition(new THREE.Vector3()), end = target.position.clone().setY(target.player ? this.camera.position.y : 1.3); end.x += (Math.random() - .5) * distance * .018; end.y += (Math.random() - .5) * distance * .012; const direction = end.clone().sub(start), shotDistance = direction.length(); this.ray.set(start, direction.normalize()); this.ray.far = shotDistance; const obstruction = this.ray.intersectObjects(this.occlusionMeshes(), false)[0]; this.ray.far = Infinity; const hit = !obstruction || obstruction.distance >= shotDistance - .4; if (obstruction && !hit) end.copy(obstruction.point); this.tracer(start, end, operator.team === 'ally' ? 0xffdf82 : 0xff8068); const sound = this.soundAt(start); this.audio.shot('auto', sound.volume, sound.pan); this.alertBots(operator.team, machineGun.position)
+      const start = machineGun.muzzle.getWorldPosition(new THREE.Vector3()), end = target.position.clone().setY(target.player ? this.camera.position.y : 1.3); end.x += (Math.random() - .5) * distance * .018; end.y += (Math.random() - .5) * distance * .012; const direction = end.clone().sub(start), shotDistance = direction.length(); this.ray.set(start, direction.normalize()); this.ray.far = shotDistance; const obstruction = this.withStaticCover(this.ray.intersectObjects(this.occlusionMeshes(), false)[0]); this.ray.far = Infinity; const hit = !obstruction || obstruction.distance >= shotDistance - .4; if (obstruction && !hit) end.copy(obstruction.point); this.tracer(start, end, operator.team === 'ally' ? 0xffdf82 : 0xff8068); const sound = this.soundAt(start); this.audio.shot('auto', sound.volume, sound.pan); this.alertBots(operator.team, machineGun.position)
       if (!hit || Math.random() > THREE.MathUtils.clamp(.76 - distance * .009, .18, .68)) continue
       if (target.bot) { target.bot.hp -= 22; target.bot.suppression = Math.min(1.6, target.bot.suppression + .24); if (target.bot.hp <= 0) { operator.kills++; this.down(target.bot, undefined, false, operator) } } else if (target.player) { this.hurtPlayer(8 * this.enemyDamage, start, `${operator.name} · 运兵车车载机枪`); if (this.dead) operator.kills++ }
     }
@@ -915,7 +941,7 @@ export class Game {
   }
   private interact() {
     if (this.dead || this.buildAction || this.supplyAction || this.bandagingUntil || this.grenadeCooking) return
-    if (this.playerPlane) { this.leavePlane(); return }
+    if (this.playerPlane) return
     if (this.playerTransport) { this.leaveTransport(); return }
     if (this.playerTank) { this.leaveTank(); return }
     if (this.playerMortar) { this.leaveMortar(); return }
@@ -956,17 +982,161 @@ export class Game {
   }
   private dismountTransportPassenger(transport: Transport, bot: Bot, seat: number, bailing = false) { bot.riding = undefined; const side = seat % 2 ? 1 : -1, offset = new THREE.Vector3(side * 1.75, 0, -.8 + Math.floor(seat / 2) * .85).applyQuaternion(transport.root.quaternion); bot.root.position.copy(transport.root.position).add(offset); bot.root.scale.set(1, 1, 1); bot.legs.forEach(leg => leg.rotation.x = 0); bot.suppression = bailing ? Math.max(bot.suppression, .8) : bot.suppression; bot.nextShot = performance.now() / 1000 + .5 + Math.random() }
   private transportDriverSeated(transport: Transport) { return Boolean(transport.driver?.alive && transport.driver.root.position.distanceToSquared(transport.root.position) < 2.2 ** 2) }
+  /** Hull forward for tanks (mesh gun points local -Z). */
+  private tankForward(yaw: number, out = this.tmpV3A) { return out.set(-Math.sin(yaw), 0, -Math.cos(yaw)) }
+  /** Hull forward for trucks (cab points local +Z). */
+  private truckForward(yaw: number, out = this.tmpV3A) { return out.set(Math.sin(yaw), 0, Math.cos(yaw)) }
+  private placeChaseCamera(anchor: THREE.Vector3, lookAt: THREE.Vector3, distance: number, height: number, minDistance: number, ignore?: THREE.Object3D) {
+    // Orbit behind look direction (mouse free-look), not stuck to hull.
+    this.chaseCamLook.copy(lookAt)
+    this.chaseCamPos.set(anchor.x, anchor.y + height, anchor.z)
+    const horizontal = Math.cos(this.pitch)
+    const backX = Math.sin(this.yaw) * horizontal
+    const backY = .28 - Math.sin(this.pitch) * .85
+    const backZ = Math.cos(this.yaw) * horizontal
+    const backLen = Math.hypot(backX, backY, backZ) || 1
+    const back = this.tmpV3B.set(backX / backLen, backY / backLen, backZ / backLen)
+    this.ray.set(this.chaseCamPos, back)
+    this.ray.far = distance
+    const hits = this.ray.intersectObjects(this.occlusionMeshes(), false)
+    let closest: THREE.Intersection | undefined
+    for (const hit of hits) {
+      if (ignore) {
+        let node: THREE.Object3D | null = hit.object
+        let skip = false
+        while (node) { if (node === ignore) { skip = true; break } node = node.parent }
+        if (skip) continue
+      }
+      closest = hit
+      break
+    }
+    const obstruction = this.withStaticCover(closest)
+    const cameraDistance = obstruction ? Math.max(minDistance, obstruction.distance - .55) : distance
+    this.ray.far = Infinity
+    this.camera.position.copy(this.chaseCamPos).addScaledVector(back, cameraDistance)
+    this.camera.lookAt(this.chaseCamLook)
+  }
+  private dismountBeside(root: THREE.Object3D, side = 2.4) {
+    const offset = this.tmpV3A.set(side, 0, 0).applyQuaternion(root.quaternion)
+    this.camera.position.copy(root.position).add(offset)
+    this.groundLevel = this.terrainHeight(this.camera.position.x, this.camera.position.z)
+    this.camera.position.y = this.groundLevel + 1.72
+    this.vehicleThrottle = 0
+    this.vehicleSteer = 0
+    this.resetCameraView()
+  }
   private enterTank(tank: Tank) {
-    this.dismountTankDriver(tank); this.playerTank = tank; tank.playerDriven = true; this.tankMgFiring = false; this.tankGunnerView = false; this.weapon.visible = false; this.aiming = false; this.yaw = tank.root.rotation.y; this.pitch = -.03; this.events.aim(false); this.events.vehicle(true, tank.hp, performance.now() >= this.tankShotAt, tank.name, '左键主炮 · 右键同轴机枪 · C 炮手瞄具', tank.maxHp, 1)
+    this.dismountTankDriver(tank)
+    this.playerTank = tank
+    tank.playerDriven = true
+    this.tankMgFiring = false
+    this.tankGunnerView = false
+    this.vehicleThrottle = 0
+    this.vehicleSteer = 0
+    this.weapon.visible = false
+    this.aiming = false
+    // Align free-look with hull so W drives into view.
+    this.yaw = tank.root.rotation.y
+    this.pitch = -.06
+    this.events.aim(false)
+    this.events.vehicle(true, tank.hp, performance.now() >= this.tankShotAt, tank.name, '左键主炮 · 右键同轴机枪 · C 切换视角', tank.maxHp, 1)
   }
   private leaveTank() {
-    const tank = this.playerTank; if (!tank) return; tank.playerDriven = false; this.tankMgFiring = false; this.tankGunnerView = false; this.playerTank = undefined; this.weapon.visible = true; const side = new THREE.Vector3(2.4, 0, 0).applyQuaternion(tank.root.quaternion); this.camera.position.copy(tank.root.position).add(side); this.groundLevel = this.terrainHeight(this.camera.position.x, this.camera.position.z); this.camera.position.y = this.groundLevel + 1.72; this.resetCameraView(); this.events.vehicle(false, 0, false); this.events.tankSight(false, false, false); this.events.loadout(this.activeLoadout()); this.events.ammo(this.mag, this.reserve, false)
+    const tank = this.playerTank
+    if (!tank) return
+    tank.playerDriven = false
+    this.tankMgFiring = false
+    this.tankGunnerView = false
+    this.playerTank = undefined
+    this.weapon.visible = true
+    this.dismountBeside(tank.root, 2.5)
+    this.events.vehicle(false, 0, false)
+    this.events.tankSight(false, false, false)
+    this.events.loadout(this.activeLoadout())
+    this.events.ammo(this.mag, this.reserve, false)
   }
-  private enterTransport(transport: Transport) { this.dismountTransportDriver(transport); this.playerTransport = transport; this.playerTransportPassenger = false; this.playerTransportSeat = -1; transport.playerDriven = true; this.weapon.visible = false; this.aiming = false; this.yaw = transport.root.rotation.y + Math.PI; this.pitch = -.04; this.resetCameraView(70); this.events.aim(false); this.events.vehicle(true, transport.hp, true, transport.name, '运输载具 · E 下车', transport.maxHp, 1) }
-  private enterTransportPassenger(transport: Transport) { this.playerTransport = transport; this.playerTransportPassenger = true; this.playerTransportSeat = 5; this.weapon.visible = true; this.aiming = false; this.yaw = transport.root.rotation.y; this.pitch = -.04; this.resetCameraView(); this.events.aim(false); this.events.vehicle(false, 0, false); this.events.loadout({ ...this.activeLoadout(), weapon: `${this.activeLoadout().weapon} · 搭乘卡车` }); this.events.ammo(this.mag, this.reserve, false) }
-  private leaveTransport() { const transport = this.playerTransport; if (!transport) return; if (!this.playerTransportPassenger) transport.playerDriven = false; this.playerTransport = undefined; this.playerTransportPassenger = false; this.playerTransportSeat = -1; this.weapon.visible = true; const side = new THREE.Vector3(2.2, 0, 0).applyQuaternion(transport.root.quaternion); this.camera.position.copy(transport.root.position).add(side); this.groundLevel = this.terrainHeight(this.camera.position.x, this.camera.position.z); this.camera.position.y = this.groundLevel + 1.72; this.resetCameraView(); this.events.vehicle(false, 0, false); this.events.loadout(this.activeLoadout()); this.events.ammo(this.mag, this.reserve, false) }
-  private updatePlayerTransport(dt: number) { const transport = this.playerTransport; if (!transport || !transport.alive) return; const throttle = (this.keys.has('KeyW') ? 1 : 0) - (this.keys.has('KeyS') ? 1 : 0), steering = (this.keys.has('KeyA') ? 1 : 0) - (this.keys.has('KeyD') ? 1 : 0); if (Math.abs(throttle) > .01) transport.root.rotation.y -= steering * dt * 1.05 * Math.sign(throttle); const forward = new THREE.Vector3(Math.sin(transport.root.rotation.y), 0, Math.cos(transport.root.rotation.y)), speed = throttle * dt * (throttle > 0 ? 6.2 : 3.2); this.moveTankWithCollision(transport.root.position, forward.x * speed, forward.z * speed); for (const wheel of transport.wheels) wheel.rotation.x -= speed * 1.8; const anchor = transport.root.position.clone().setY(2.45), back = new THREE.Vector3(Math.sin(this.yaw) * Math.cos(this.pitch), .34 - Math.sin(-this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch)).normalize(); this.ray.set(anchor, back); this.ray.far = 9; const obstruction = this.ray.intersectObjects(this.occlusionMeshes(), false)[0], cameraDistance = obstruction ? Math.max(2.6, obstruction.distance - .45) : 8.5; this.ray.far = Infinity; this.camera.position.copy(anchor).addScaledVector(back, cameraDistance); this.camera.lookAt(anchor.clone().add(new THREE.Vector3(0, .2, 0))); this.camera.fov = THREE.MathUtils.damp(this.camera.fov, 70, 10, dt); this.camera.updateProjectionMatrix(); const riders = this.bots.filter(bot => bot.alive && bot.riding === transport).length, speedKmh = Math.round(Math.abs(throttle) * (throttle > 0 ? 54 : 24)); this.events.vehicle(true, transport.hp, true, transport.name, `速度 ${speedKmh} km/h · 载员 ${riders}/6 · WASD 驾驶 · E 下车`) }
-  private updatePlayerTransportPassenger() { const transport = this.playerTransport; if (!transport || !transport.alive) return; const side = this.playerTransportSeat % 2 ? .68 : -.68, row = Math.floor(this.playerTransportSeat / 2), seat = new THREE.Vector3(side, 1.78, -.2 - row * .72).applyQuaternion(transport.root.quaternion); this.camera.position.copy(transport.root.position).add(seat); this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ'); if (this.camera.fov !== 72) this.resetCameraView(); if (this.firing) this.fire(); this.events.loadout({ ...this.activeLoadout(), weapon: `${this.activeLoadout().weapon} · 搭乘卡车` }) }
+  private enterTransport(transport: Transport) {
+    this.dismountTransportDriver(transport)
+    this.playerTransport = transport
+    this.playerTransportPassenger = false
+    this.playerTransportSeat = -1
+    transport.playerDriven = true
+    this.vehicleThrottle = 0
+    this.vehicleSteer = 0
+    this.weapon.visible = false
+    this.aiming = false
+    // Truck forward is (sin,cos); camera look uses (-sin,-cos). Offset by π so W matches view.
+    this.yaw = transport.root.rotation.y + Math.PI
+    this.pitch = -.05
+    this.resetCameraView(70)
+    this.events.aim(false)
+    this.events.vehicle(true, transport.hp, true, transport.name, 'WASD 驾驶 · 鼠标环视 · E 下车', transport.maxHp, 1)
+  }
+  private enterTransportPassenger(transport: Transport) {
+    this.playerTransport = transport
+    this.playerTransportPassenger = true
+    this.playerTransportSeat = 5
+    this.weapon.visible = true
+    this.aiming = false
+    this.yaw = transport.root.rotation.y + Math.PI
+    this.pitch = -.04
+    this.resetCameraView()
+    this.events.aim(false)
+    this.events.vehicle(false, 0, false)
+    this.events.loadout({ ...this.activeLoadout(), weapon: `${this.activeLoadout().weapon} · 搭乘卡车` })
+    this.events.ammo(this.mag, this.reserve, false)
+  }
+  private leaveTransport() {
+    const transport = this.playerTransport
+    if (!transport) return
+    if (!this.playerTransportPassenger) transport.playerDriven = false
+    this.playerTransport = undefined
+    this.playerTransportPassenger = false
+    this.playerTransportSeat = -1
+    this.weapon.visible = true
+    this.dismountBeside(transport.root, 2.3)
+    this.events.vehicle(false, 0, false)
+    this.events.loadout(this.activeLoadout())
+    this.events.ammo(this.mag, this.reserve, false)
+  }
+  private updatePlayerTransport(dt: number) {
+    const transport = this.playerTransport
+    if (!transport) return
+    if (!transport.alive) { this.leaveTransport(); this.hurtPlayer(35, transport.root.position, `${transport.name} · 载具损毁`); return }
+    const throttleTarget = (this.keys.has('KeyW') ? 1 : 0) - (this.keys.has('KeyS') ? 1 : 0)
+    const steerTarget = (this.keys.has('KeyA') ? 1 : 0) - (this.keys.has('KeyD') ? 1 : 0)
+    this.vehicleThrottle = THREE.MathUtils.damp(this.vehicleThrottle, throttleTarget, 7, dt)
+    this.vehicleSteer = THREE.MathUtils.damp(this.vehicleSteer, steerTarget, 9, dt)
+    // Steer only while rolling; reverse inverts steer (car-like).
+    if (Math.abs(this.vehicleThrottle) > .04) {
+      transport.root.rotation.y -= this.vehicleSteer * dt * 1.15 * Math.sign(this.vehicleThrottle)
+    }
+    const forward = this.truckForward(transport.root.rotation.y, this.tmpV3C)
+    const speed = this.vehicleThrottle * dt * (this.vehicleThrottle > 0 ? 6.8 : 3.4)
+    this.moveTankWithCollision(transport.root.position, forward.x * speed, forward.z * speed)
+    for (const wheel of transport.wheels) wheel.rotation.x -= speed * 1.9
+    const anchor = this.tmpV3A.copy(transport.root.position)
+    const look = this.tmpV3B.copy(transport.root.position).setY(transport.root.position.y + 1.15)
+    this.placeChaseCamera(anchor, look, 9.2, 2.55, 3.2, transport.root)
+    this.camera.fov = THREE.MathUtils.damp(this.camera.fov, 68, 10, dt)
+    this.camera.updateProjectionMatrix()
+    const riders = this.bots.filter(bot => bot.alive && bot.riding === transport).length
+    const speedKmh = Math.round(Math.abs(this.vehicleThrottle) * (this.vehicleThrottle > 0 ? 58 : 26))
+    this.events.vehicle(true, transport.hp, true, transport.name, `速度 ${speedKmh} km/h · 载员 ${riders}/6 · WASD 驾驶 · E 下车`, transport.maxHp, 1)
+  }
+  private updatePlayerTransportPassenger() {
+    const transport = this.playerTransport
+    if (!transport) return
+    if (!transport.alive) { this.leaveTransport(); return }
+    const side = this.playerTransportSeat % 2 ? .68 : -.68
+    const row = Math.floor(this.playerTransportSeat / 2)
+    const seat = this.tmpV3A.set(side, 1.78, -.2 - row * .72).applyQuaternion(transport.root.quaternion)
+    this.camera.position.copy(transport.root.position).add(seat)
+    this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ')
+    if (this.camera.fov !== 72) this.resetCameraView()
+    if (this.firing) this.fire()
+    this.events.loadout({ ...this.activeLoadout(), weapon: `${this.activeLoadout().weapon} · 搭乘卡车` })
+  }
   private seatPlanePilot(plane: Plane) {
     if (plane.pilot?.alive) return
     const pilot = this.bots.find(bot => bot.alive && bot.team === plane.team && !bot.inSquad && !bot.chuting && !bot.riding && !bot.drivingTank && !bot.drivingTransport && !bot.piloting && !bot.emplacement && !bot.machineGun && !bot.mortarRig)
@@ -977,13 +1147,39 @@ export class Game {
     const pilot = plane.pilot; if (!pilot) return
     plane.pilot = undefined; pilot.piloting = undefined; pilot.root.visible = true; pilot.body.layers.enable(0); pilot.head.layers.enable(0); pilot.weapon.visible = true; pilot.root.position.set((Math.random() - .5) * 8, 0, pilot.team === 'ally' ? 48 : -48); pilot.nextShot = performance.now() / 1000 + 1
   }
-  private enterPlane(plane: Plane) { this.releasePlanePilot(plane); this.playerPlane = plane; plane.playerDriven = true; plane.speed = Math.max(plane.speed, 26); plane.throttle = Math.max(plane.throttle, .8); this.weapon.visible = false; this.aiming = false; this.yaw = plane.root.rotation.y; this.pitch = plane.root.rotation.x; this.planeStickPitch = this.pitch; this.events.aim(false); this.events.vehicle(true, plane.hp, true, plane.name, `左键机枪 · 右键/B 炸弹 ×${plane.bombs} · Q/E 方向舵 · E 跳伞`, plane.maxHp, plane.bombs / plane.maxBombs) }
-  private leavePlane() { const plane = this.playerPlane; if (!plane) return; plane.playerDriven = false; plane.abandoned = true; plane.nextAttack = performance.now() / 1000; this.playerPlane = undefined; this.parachuting = true; this.weapon.visible = false; this.camera.position.copy(plane.root.position).add(new THREE.Vector3(0, -.8, 0)); this.events.vehicle(false, 0, false); this.deployParachute() }
+  private enterPlane(plane: Plane) {
+    this.releasePlanePilot(plane)
+    this.playerPlane = plane
+    plane.playerDriven = true
+    plane.speed = Math.max(plane.speed, 26)
+    plane.throttle = Math.max(plane.throttle, .8)
+    this.weapon.visible = false
+    this.aiming = false
+    this.yaw = plane.root.rotation.y
+    this.pitch = plane.root.rotation.x
+    this.planeStickPitch = this.pitch
+    this.events.aim(false)
+    // E is exit/parachute only — rudder is Q/C to avoid key conflict.
+    this.events.vehicle(true, plane.hp, true, plane.name, `左键机枪 · 右键/B 炸弹 ×${plane.bombs} · Q/C 方向舵 · F 跳伞`, plane.maxHp, plane.bombs / plane.maxBombs)
+  }
+  private leavePlane() {
+    const plane = this.playerPlane
+    if (!plane) return
+    plane.playerDriven = false
+    plane.abandoned = true
+    plane.nextAttack = performance.now() / 1000
+    this.playerPlane = undefined
+    this.parachuting = true
+    this.weapon.visible = false
+    this.camera.position.copy(plane.root.position).add(new THREE.Vector3(0, -.8, 0))
+    this.events.vehicle(false, 0, false)
+    this.deployParachute()
+  }
   private deployParachute() { if (this.parachute) this.disposeGroup(this.parachute); const chute = new THREE.Group(), canopy = new THREE.Mesh(new THREE.SphereGeometry(1.8, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xd8d1b8, roughness: .9, side: THREE.DoubleSide })); canopy.scale.y = .42; chute.add(canopy); const lineMaterial = new THREE.LineBasicMaterial({ color: 0x5d574c }); for (const angle of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) { const rim = new THREE.Vector3(Math.sin(angle) * 1.65, 0, Math.cos(angle) * 1.65), geometry = new THREE.BufferGeometry().setFromPoints([rim, new THREE.Vector3(0, -2.6, 0)]); chute.add(new THREE.Line(geometry, lineMaterial.clone())) } this.scene.add(chute); this.parachute = chute }
   private updateParachute(dt: number) { if (!this.parachuting) return; const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw)), movement = new THREE.Vector3(); if (this.keys.has('KeyW')) movement.add(forward); if (this.keys.has('KeyS')) movement.sub(forward); if (this.keys.has('KeyD')) movement.add(right); if (this.keys.has('KeyA')) movement.sub(right); if (movement.lengthSq()) this.camera.position.addScaledVector(movement.normalize(), dt * 4.2); this.camera.position.y -= dt * 3.6; const width = this.battlefieldHalfWidth() - .5, depth = this.battlefieldHalfDepth(); this.camera.position.x = THREE.MathUtils.clamp(this.camera.position.x, -width, width); this.camera.position.z = THREE.MathUtils.clamp(this.camera.position.z, -depth, depth); this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ'); if (this.parachute) this.parachute.position.copy(this.camera.position).add(new THREE.Vector3(0, 2.6, 0)); const ground = this.terrainHeight(this.camera.position.x, this.camera.position.z); if (this.camera.position.y > ground + 1.72) return; this.groundLevel = ground; this.camera.position.y = ground + 1.72; this.parachuting = false; if (this.parachute) { this.disposeGroup(this.parachute); this.parachute = undefined } this.weapon.visible = true; this.events.loadout(this.activeLoadout()); this.events.ammo(this.mag, this.reserve, false) }
   private firePlayerPlane() {
     const plane = this.playerPlane, time = performance.now() / 1000; if (!plane || !plane.alive || time < plane.nextShot) return; plane.nextShot = time + .095; this.ray.setFromCamera(new THREE.Vector2((Math.random() - .5) * .008, (Math.random() - .5) * .008), this.camera)
-    const hit = this.ray.intersectObjects(this.hitTargetsAgainst('enemy'), false)[0], targetPlane = hit?.object.userData.plane as Plane | undefined, bot = hit?.object.userData.bot as Bot | undefined, tank = hit?.object.userData.tank as Tank | undefined, transport = hit?.object.userData.transport as Transport | undefined, gun = hit?.object.userData.emplacement as Emplacement | undefined, start = plane.root.position.clone().add(new THREE.Vector3(0, 0, -2).applyEuler(plane.root.rotation)), end = hit?.point ?? this.ray.ray.at(180, new THREE.Vector3()); this.tracer(start, end, 0xffdf83); this.audio.shot('auto')
+    const hit = this.withStaticCover(this.ray.intersectObjects(this.hitTargetsAgainst('enemy'), false)[0]), targetPlane = hit?.object.userData.plane as Plane | undefined, bot = hit?.object.userData.bot as Bot | undefined, tank = hit?.object.userData.tank as Tank | undefined, transport = hit?.object.userData.transport as Transport | undefined, gun = hit?.object.userData.emplacement as Emplacement | undefined, start = plane.root.position.clone().add(new THREE.Vector3(0, 0, -2).applyEuler(plane.root.rotation)), end = hit?.point ?? this.ray.ray.at(180, new THREE.Vector3()); this.tracer(start, end, 0xffdf83); this.audio.shot('auto')
     if (targetPlane) this.damagePlane(targetPlane, 12, true); else if (bot) { const dealt = Math.min(bot.hp, 18); bot.hp -= 18; const killed = bot.hp <= 0; this.events.hit(killed, false, dealt); if (killed) this.kill(bot) } else if (tank) this.damageTank(tank, 3, true); else if (transport) this.damageTransport(transport, 5, true); else if (gun) this.damageEmplacement(gun, 6, true)
   }
   private dropPlaneBomb() {
@@ -999,7 +1195,76 @@ export class Game {
     return true
   }
   private updatePlayerPlane(dt: number) {
-    const plane = this.playerPlane; if (!plane || !plane.alive) return; const time = performance.now() / 1000, throttleInput = (this.keys.has('KeyW') ? 1 : 0) - (this.keys.has('KeyS') ? 1 : 0), bankInput = (this.keys.has('KeyA') ? 1 : 0) - (this.keys.has('KeyD') ? 1 : 0), rudderInput = (this.keys.has('KeyQ') ? 1 : 0) - (this.keys.has('KeyE') ? 1 : 0), minimumSpeed = 24, maximumSpeed = 45; plane.throttle = THREE.MathUtils.clamp(plane.throttle + throttleInput * .55 * dt, 0, 1.12); const dynamicPressure = THREE.MathUtils.clamp(plane.speed / minimumSpeed, .35, 1.4), stall = THREE.MathUtils.clamp((plane.speed - minimumSpeed * .55) / (minimumSpeed * .4), .12, 1), targetBank = bankInput * .95; plane.root.rotation.z = THREE.MathUtils.damp(plane.root.rotation.z, targetBank, 4.5, dt); const stick = THREE.MathUtils.clamp(this.planeStickPitch - this.pitch, -.55, .55), pullRate = stick * (2.1 * dynamicPressure + .15) * stall; this.pitch += pullRate * Math.cos(plane.root.rotation.z) * dt; this.yaw += pullRate * Math.sin(plane.root.rotation.z) * 1.15 * dt; this.yaw += rudderInput * .45 * dynamicPressure * dt; this.pitch = THREE.MathUtils.clamp(this.pitch, -1.35, 1.2); if (stall < .85) { this.pitch = THREE.MathUtils.damp(this.pitch, -.55, (1 - stall) * 1.6, dt); if (stall < .5 && !plane.stallWarned) { plane.stallWarned = true; this.status = '失速！推头俯冲恢复速度'; this.statusUntil = time + 2.2 } } else plane.stallWarned = false; plane.root.rotation.set(this.pitch, this.yaw, plane.root.rotation.z, 'YXZ'); const forward = new THREE.Vector3(0, 0, -1).applyEuler(plane.root.rotation), climb = forward.y, thrust = 13.5 * plane.throttle * (1 - dynamicPressure * .28), gravityEnergy = -10.5 * climb, drag = -(2.2 + Math.abs(stick) * 5.5) * plane.speed ** 2 / maximumSpeed ** 2; plane.speed = THREE.MathUtils.clamp(plane.speed + (thrust + gravityEnergy + drag) * dt, 6, 52); plane.root.position.addScaledVector(forward, plane.speed * dt); plane.root.position.y -= (1 - stall) * 9.5 * dt; plane.root.position.x = THREE.MathUtils.clamp(plane.root.position.x, -105, 105); plane.root.position.z = THREE.MathUtils.clamp(plane.root.position.z, -105, 105); if (Math.abs(plane.root.position.x) >= 104 || Math.abs(plane.root.position.z) >= 104) this.yaw += Math.PI * dt * .55; const cameraBack = forward.clone().negate(); cameraBack.y += .34; cameraBack.normalize(); const anchor = plane.root.position.clone(), desiredDistance = 12.5; this.ray.set(anchor, cameraBack); this.ray.far = desiredDistance; const obstruction = this.ray.intersectObjects(this.occlusionMeshes(), false)[0]; this.ray.far = Infinity; this.camera.position.copy(anchor).addScaledVector(cameraBack, obstruction ? Math.max(3, obstruction.distance - .5) : desiredDistance); this.camera.lookAt(anchor.clone().addScaledVector(forward, 24)); this.camera.fov = THREE.MathUtils.damp(this.camera.fov, 72 + plane.speed * .14, 6, dt); this.camera.updateProjectionMatrix(); if (this.firing) this.firePlayerPlane(); if (plane.root.position.y < 2.2) { this.damagePlane(plane, 999, false); return } if (plane.bombs < plane.maxBombs && time >= plane.bombRearmAt) { plane.bombs++; plane.bombRearmAt = plane.bombs < plane.maxBombs ? time + 28 : 0 } const stallText = stall < .5 ? ' · 失速！' : stall < .85 ? ' · 临界速度' : ''; this.events.vehicle(true, plane.hp, time >= plane.nextShot, plane.name, `速度 ${Math.round(plane.speed * 7.2)} km/h · 高度 ${Math.max(0, Math.round(plane.root.position.y))}m · 油门 ${Math.round(plane.throttle * 100)}%${stallText} · 炸弹 ×${plane.bombs} · Q/E 方向舵`) }
+    const plane = this.playerPlane
+    if (!plane) return
+    if (!plane.alive) {
+      this.playerPlane = undefined
+      this.weapon.visible = true
+      this.events.vehicle(false, 0, false)
+      this.parachuting = true
+      this.deployParachute()
+      return
+    }
+    const time = performance.now() / 1000
+    const throttleInput = (this.keys.has('KeyW') ? 1 : 0) - (this.keys.has('KeyS') ? 1 : 0)
+    const bankInput = (this.keys.has('KeyA') ? 1 : 0) - (this.keys.has('KeyD') ? 1 : 0)
+    // Q left / C right rudder; F bails out.
+    const rudderInput = (this.keys.has('KeyQ') ? 1 : 0) - (this.keys.has('KeyC') ? 1 : 0)
+    const minimumSpeed = 24, maximumSpeed = 45
+    plane.throttle = THREE.MathUtils.clamp(plane.throttle + throttleInput * .55 * dt, 0, 1.12)
+    const dynamicPressure = THREE.MathUtils.clamp(plane.speed / minimumSpeed, .35, 1.4)
+    const stall = THREE.MathUtils.clamp((plane.speed - minimumSpeed * .55) / (minimumSpeed * .4), .12, 1)
+    const targetBank = bankInput * .95
+    plane.root.rotation.z = THREE.MathUtils.damp(plane.root.rotation.z, targetBank, 4.5, dt)
+    // Mouse drives stick pitch; aircraft pitch lags toward stick (arcade flight).
+    const stick = THREE.MathUtils.clamp(this.planeStickPitch - this.pitch, -.55, .55)
+    const pullRate = stick * (2.1 * dynamicPressure + .15) * stall
+    this.pitch += pullRate * Math.cos(plane.root.rotation.z) * dt
+    this.yaw += pullRate * Math.sin(plane.root.rotation.z) * 1.15 * dt
+    this.yaw += rudderInput * .55 * dynamicPressure * dt
+    this.pitch = THREE.MathUtils.clamp(this.pitch, -1.35, 1.2)
+    if (stall < .85) {
+      this.pitch = THREE.MathUtils.damp(this.pitch, -.55, (1 - stall) * 1.6, dt)
+      if (stall < .5 && !plane.stallWarned) {
+        plane.stallWarned = true
+        this.status = '失速！推头俯冲恢复速度'
+        this.statusUntil = time + 2.2
+      }
+    } else plane.stallWarned = false
+    plane.root.rotation.set(this.pitch, this.yaw, plane.root.rotation.z, 'YXZ')
+    const forward = this.tmpV3C.set(0, 0, -1).applyEuler(plane.root.rotation)
+    const climb = forward.y
+    const thrust = 13.5 * plane.throttle * (1 - dynamicPressure * .28)
+    const gravityEnergy = -10.5 * climb
+    const drag = -(2.2 + Math.abs(stick) * 5.5) * plane.speed ** 2 / maximumSpeed ** 2
+    plane.speed = THREE.MathUtils.clamp(plane.speed + (thrust + gravityEnergy + drag) * dt, 6, 52)
+    plane.root.position.addScaledVector(forward, plane.speed * dt)
+    plane.root.position.y -= (1 - stall) * 9.5 * dt
+    plane.root.position.x = THREE.MathUtils.clamp(plane.root.position.x, -105, 105)
+    plane.root.position.z = THREE.MathUtils.clamp(plane.root.position.z, -105, 105)
+    if (Math.abs(plane.root.position.x) >= 104 || Math.abs(plane.root.position.z) >= 104) this.yaw += Math.PI * dt * .55
+    const cameraBack = this.tmpV3B.copy(forward).negate()
+    cameraBack.y += .32
+    cameraBack.normalize()
+    const anchor = this.tmpV3A.copy(plane.root.position)
+    const desiredDistance = 11.5
+    this.ray.set(anchor, cameraBack)
+    this.ray.far = desiredDistance
+    const obstruction = this.withStaticCover(this.ray.intersectObjects(this.occlusionMeshes(), false)[0])
+    this.ray.far = Infinity
+    this.camera.position.copy(anchor).addScaledVector(cameraBack, obstruction ? Math.max(3.5, obstruction.distance - .5) : desiredDistance)
+    this.camera.lookAt(this.chaseCamLook.copy(anchor).addScaledVector(forward, 22))
+    this.camera.fov = THREE.MathUtils.damp(this.camera.fov, 70 + plane.speed * .12, 6, dt)
+    this.camera.updateProjectionMatrix()
+    if (this.firing) this.firePlayerPlane()
+    if (plane.root.position.y < 2.2) { this.damagePlane(plane, 999, false); return }
+    if (plane.bombs < plane.maxBombs && time >= plane.bombRearmAt) {
+      plane.bombs++
+      plane.bombRearmAt = plane.bombs < plane.maxBombs ? time + 28 : 0
+    }
+    const stallText = stall < .5 ? ' · 失速！' : stall < .85 ? ' · 临界速度' : ''
+    this.events.vehicle(true, plane.hp, time >= plane.nextShot, plane.name, `速度 ${Math.round(plane.speed * 7.2)} km/h · 高度 ${Math.max(0, Math.round(plane.root.position.y))}m · 油门 ${Math.round(plane.throttle * 100)}%${stallText} · 炸弹 ×${plane.bombs} · Q/C 方向舵 · F 跳伞`, plane.maxHp, plane.bombs / Math.max(1, plane.maxBombs))
+  }
   private enterEmplacement(gun: Emplacement) { if (gun.operator) { gun.operator.emplacement = undefined; gun.operator = undefined } this.playerEmplacement = gun; gun.occupied = true; this.weapon.visible = false; this.aiming = false; this.yaw = gun.root.rotation.y + gun.yaw.rotation.y; this.pitch = gun.kind === 'aa' ? -.22 : -.03; this.events.aim(false); this.events.vehicle(true, gun.hp, performance.now() / 1000 >= gun.nextShot, gun.kind === 'aa' ? '二〇毫米防空炮' : '三七毫米反坦克炮', gun.kind === 'aa' ? '防空火力 · E 撤离' : '反装甲火力 · E 撤离') }
   private leaveEmplacement() { const gun = this.playerEmplacement; if (!gun) return; gun.occupied = false; this.playerEmplacement = undefined; this.events.emplacementLead(); this.weapon.visible = true; const side = new THREE.Vector3(1.8, 0, 0).applyQuaternion(gun.root.quaternion); this.camera.position.copy(gun.root.position).add(side).setY(1.72); this.events.vehicle(false, 0, false); this.events.loadout(this.activeLoadout()); this.events.ammo(this.mag, this.reserve, false) }
   private updatePlayerEmplacement() {
@@ -1013,7 +1278,7 @@ export class Game {
   private fireEmplacement() {
     const gun = this.playerEmplacement, time = performance.now() / 1000; if (!gun || !gun.alive || time < gun.nextShot) return; gun.nextShot = time + (gun.kind === 'aa' ? .22 : 3.7); this.ray.setFromCamera(new THREE.Vector2(), this.camera)
     if (gun.kind === 'at') { const direction = new THREE.Vector3(); this.camera.getWorldDirection(direction); this.launchCannonShell(gun.muzzle.getWorldPosition(new THREE.Vector3()), direction, gun.team, true, 220); this.audio.shot('bolt'); return }
-    const hit = this.ray.intersectObjects(this.hitTargetsAgainst('enemy'), false)[0], bot = hit?.object.userData.bot as Bot | undefined, tank = hit?.object.userData.tank as Tank | undefined, transport = hit?.object.userData.transport as Transport | undefined, targetGun = hit?.object.userData.emplacement as Emplacement | undefined, plane = hit?.object.userData.plane as Plane | undefined, depot = hit?.object.userData.depot as Depot | undefined, structure = hit?.object.userData.structure as FieldStructure | undefined, end = hit?.point ?? this.ray.ray.at(150, new THREE.Vector3())
+    const hit = this.withStaticCover(this.ray.intersectObjects(this.hitTargetsAgainst('enemy'), false)[0]), bot = hit?.object.userData.bot as Bot | undefined, tank = hit?.object.userData.tank as Tank | undefined, transport = hit?.object.userData.transport as Transport | undefined, targetGun = hit?.object.userData.emplacement as Emplacement | undefined, plane = hit?.object.userData.plane as Plane | undefined, depot = hit?.object.userData.depot as Depot | undefined, structure = hit?.object.userData.structure as FieldStructure | undefined, end = hit?.point ?? this.ray.ray.at(150, new THREE.Vector3())
     this.tracer(gun.muzzle.getWorldPosition(new THREE.Vector3()), end, 0xffe39a); this.audio.shot('auto')
     if (plane) this.damagePlane(plane, 25, true); else if (tank) this.damageTank(tank, 8, true); else if (transport) this.damageTransport(transport, 12, true); else if (targetGun) this.damageEmplacement(targetGun, 14, true); else if (structure) this.damageStructure(structure, 8); else if (depot) this.damageDepot(depot, 12, true); else if (bot) { const dealt = Math.min(bot.hp, 24); bot.hp -= 24; const killed = bot.hp <= 0; this.events.hit(killed, hit?.object.userData.hitZone === 'head', dealt); if (killed) this.kill(bot, hit?.object.userData.hitZone === 'head') }
   }
@@ -1053,20 +1318,19 @@ export class Game {
   }
   private cannonImpactFx(position: THREE.Vector3, kind: 'armor' | 'structure' | 'ground' | 'flesh' | 'hard', power: number) {
     const strength = THREE.MathUtils.clamp(power / 220, .65, 1.35), sound = this.soundAt(position); this.audio.explosion(sound.volume * (kind === 'armor' ? .48 : .72), sound.pan)
-    const flash = new THREE.Mesh(new THREE.SphereGeometry(.18, 8, 6), new THREE.MeshBasicMaterial({ color: kind === 'armor' ? 0xffd27a : 0xff9d3f, transparent: true, opacity: .85 })); flash.position.copy(position); this.scene.add(flash)
+    this.particle(position.clone(), new THREE.Vector3(), kind === 'armor' ? 0xffd27a : 0xff9d3f, .072, .19, 0, 3.79 * strength, .85)
     const count = kind === 'armor' ? 12 : kind === 'structure' ? 16 : kind === 'ground' ? 14 : 7
     for (let index = 0; index < count; index++) {
       const spark = kind === 'armor' || kind === 'hard', color = spark ? (index % 3 ? 0xffb55c : 0x696b66) : kind === 'structure' ? (index % 3 ? 0x62584b : 0x383936) : kind === 'ground' ? (this.campaign.theme === 'loess' ? 0x8a6e4c : 0x55483a) : 0x6f1714
       this.particle(position.clone().add(new THREE.Vector3((Math.random() - .5) * .5, Math.random() * .35, (Math.random() - .5) * .5)), new THREE.Vector3((Math.random() - .5) * (spark ? 8 : 5) * strength, 1 + Math.random() * (spark ? 5 : 7) * strength, (Math.random() - .5) * (spark ? 8 : 5) * strength), color, spark ? .04 + Math.random() * .05 : .12 + Math.random() * .2, .35 + Math.random() * .55, spark ? 8 : 7)
     }
     for (let index = 0; index < (kind === 'armor' ? 3 : 6); index++) this.particle(position.clone().add(new THREE.Vector3((Math.random() - .5) * .6, .2 + Math.random() * .5, (Math.random() - .5) * .6)), new THREE.Vector3((Math.random() - .5), .8 + Math.random() * 1.7, (Math.random() - .5)), 0x393b37, .2 + Math.random() * .2, .8 + Math.random() * .7, -.1, .8, .46)
-    const at = performance.now(), animate = () => { const t = Math.min((performance.now() - at) / 190, 1); flash.scale.setScalar(.4 + t * 4 * strength); (flash.material as THREE.MeshBasicMaterial).opacity = (1 - t) * .85; if (t < 1) requestAnimationFrame(animate); else { this.scene.remove(flash); flash.geometry.dispose(); (flash.material as THREE.Material).dispose() } }; animate()
   }
   private updateCannonShells(dt: number) {
     for (let index = this.cannonShells.length - 1; index >= 0; index--) {
       const shell = this.cannonShells[index], start = shell.mesh.position.clone(), distance = shell.velocity.length() * dt, direction = shell.velocity.clone().normalize()
       const targets = this.hitTargetsAgainst(shell.team === 'ally' ? 'enemy' : 'ally')
-      this.ray.set(start, direction); this.ray.far = distance; const hit = this.ray.intersectObjects(targets, false)[0]
+      this.ray.set(start, direction); this.ray.far = distance; const hit = this.withStaticCover(this.ray.intersectObjects(targets, false)[0])
       let impact = hit?.point
       if (!impact && shell.team === 'enemy' && !this.dead) { const closest = new THREE.Line3(start, start.clone().addScaledVector(direction, distance)).closestPointToPoint(this.camera.position, true, new THREE.Vector3()); if (closest.distanceTo(this.camera.position) < .65) { impact = closest; this.hurtPlayer(65, start, `${shell.sourceName} · 主炮炮弹直击`) } }
       shell.mesh.position.addScaledVector(shell.velocity, dt); shell.velocity.y -= dt * 2.2; shell.life -= dt
@@ -1085,11 +1349,61 @@ export class Game {
   }
   private firePlayerTankMg() {
     const tank = this.playerTank, now = performance.now(); if (!tank || !tank.alive || !tank.turretHealth || !this.crewAlive(tank, 'gunner') || now < this.tankMgShotAt) return; this.tankMgShotAt = now + 105; this.ray.setFromCamera(new THREE.Vector2((Math.random() - .5) * .012, (Math.random() - .5) * .009), this.camera)
-    const hit = this.ray.intersectObjects(this.hitTargetsAgainst('enemy'), false)[0], bot = hit?.object.userData.bot as Bot | undefined, transport = hit?.object.userData.transport as Transport | undefined, gun = hit?.object.userData.emplacement as Emplacement | undefined, start = tank.coaxMuzzle.getWorldPosition(new THREE.Vector3()), end = hit?.point ?? this.ray.ray.at(120, new THREE.Vector3()); this.tracer(start, end, 0xffdd83); this.audio.shot('auto', .58); this.suppressBots(start, end)
+    const hit = this.withStaticCover(this.ray.intersectObjects(this.hitTargetsAgainst('enemy'), false)[0]), bot = hit?.object.userData.bot as Bot | undefined, transport = hit?.object.userData.transport as Transport | undefined, gun = hit?.object.userData.emplacement as Emplacement | undefined, start = tank.coaxMuzzle.getWorldPosition(new THREE.Vector3()), end = hit?.point ?? this.ray.ray.at(120, new THREE.Vector3()); this.tracer(start, end, 0xffdd83); this.audio.shot('auto', .58); this.suppressBots(start, end)
     if (bot) { const headshot = hit?.object.userData.hitZone === 'head', shotDamage = headshot ? 30 : 18, dealt = Math.min(bot.hp, shotDamage); bot.hp -= shotDamage; const killed = bot.hp <= 0; this.events.hit(killed, headshot, dealt); if (killed) this.kill(bot, headshot) } else if (transport) this.damageTransport(transport, 2, true); else if (gun) this.damageEmplacement(gun, 2, true)
   }
   private updatePlayerTank(dt: number) {
-    const tank = this.playerTank; if (!tank || !tank.alive) return; const mobility = tank.tracks <= 0 || tank.engine <= 0 || !this.crewAlive(tank, 'driver') ? 0 : (.35 + tank.tracks / 100 * .65) * (.3 + tank.engine / 100 * .7) * (.55 + tank.crew * .1125), throttle = (this.keys.has('KeyW') ? 1 : 0) - (this.keys.has('KeyS') ? 1 : 0), steering = (this.keys.has('KeyA') ? 1 : 0) - (this.keys.has('KeyD') ? 1 : 0); tank.root.rotation.y += steering * dt * .72 * mobility; const forward = new THREE.Vector3(-Math.sin(tank.root.rotation.y), 0, -Math.cos(tank.root.rotation.y)), speed = throttle * dt * (throttle > 0 ? 4.2 : 2.4) * mobility; this.moveTankWithCollision(tank.root.position, forward.x * speed, forward.z * speed); const commanderRate = this.crewAlive(tank, 'commander') ? 1 : .75; tank.turret.rotation.y = THREE.MathUtils.damp(tank.turret.rotation.y, this.yaw - tank.root.rotation.y, (1.5 + tank.turretHealth / 20) * commanderRate, dt); this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ'); if (this.tankGunnerView) this.camera.position.copy(tank.turret.localToWorld(new THREE.Vector3(0, .48, -.82))); else { const anchor = tank.root.position.clone().setY(2.65), back = new THREE.Vector3(Math.sin(this.yaw) * Math.cos(this.pitch), .32 - Math.sin(-this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch)).normalize(); this.ray.set(anchor, back); this.ray.far = 9; const obstruction = this.ray.intersectObjects(this.occlusionMeshes(), false)[0], distance = obstruction ? Math.max(2.4, obstruction.distance - .4) : 8.5; this.camera.position.copy(anchor).addScaledVector(back, distance); this.ray.far = Infinity } const fov = this.tankGunnerView ? 30 : 68; this.camera.fov = THREE.MathUtils.damp(this.camera.fov, fov, 10, dt); this.camera.updateProjectionMatrix(); this.camera.updateMatrixWorld(); const cameraDirection = new THREE.Vector3(); this.camera.getWorldDirection(cameraDirection); this.ray.set(this.camera.position, cameraDirection); this.ray.far = 160; const rangeHit = this.ray.intersectObjects(this.occlusionMeshes(), false)[0], range = rangeHit?.distance ?? 160; this.ray.far = Infinity; const ballisticLift = this.tankGunnerView ? 3.5 * range / (2 * 130 * 130) : 0, desiredPitch = THREE.MathUtils.clamp(this.pitch + ballisticLift, -.18, .35); tank.pitch.rotation.x = THREE.MathUtils.damp(tank.pitch.rotation.x, desiredPitch, (1.2 + tank.turretHealth / 22) * commanderRate, dt); if (this.tankMgFiring) this.firePlayerTankMg(); const ready = performance.now() >= this.tankShotAt && tank.turretHealth > 0, muzzle = tank.muzzle.getWorldPosition(new THREE.Vector3()), barrelDirection = new THREE.Vector3(0, 0, -1).applyQuaternion(tank.pitch.getWorldQuaternion(new THREE.Quaternion())), projected = muzzle.clone().addScaledVector(barrelDirection, 80).project(this.camera), pipVisible = projected.z < 1 && Math.abs(projected.x) <= 1.15 && Math.abs(projected.y) <= 1.15; this.events.tankSight(true, this.tankGunnerView, ready, pipVisible ? (projected.x * .5 + .5) * innerWidth : undefined, pipVisible ? (1 - (projected.y * .5 + .5)) * innerHeight : undefined); const failedRoles = tank.crewMen.filter(crew => !crew.alive).map(crew => crew.role === 'driver' ? '驾驶员' : crew.role === 'gunner' ? '炮手' : crew.role === 'loader' ? '装填手' : '车长').join('、'); this.events.vehicle(true, tank.hp, ready, tank.name, `左键主炮 · 右键同轴机枪 · C ${this.tankGunnerView ? '车长外视' : '炮手瞄具'} · 距离 ${Math.round(range)}m · ${failedRoles ? `${failedRoles}阵亡` : `乘员 ${tank.crew}/${tank.crewCapacity}`}`)
+    const tank = this.playerTank
+    if (!tank) return
+    if (!tank.alive) { this.leaveTank(); this.hurtPlayer(40, tank.root.position, `${tank.name} · 载具损毁`); return }
+    const mobility = tank.tracks <= 0 || tank.engine <= 0 || !this.crewAlive(tank, 'driver')
+      ? 0
+      : (.35 + tank.tracks / 100 * .65) * (.3 + tank.engine / 100 * .7) * (.55 + tank.crew * .1125)
+    const throttleTarget = (this.keys.has('KeyW') ? 1 : 0) - (this.keys.has('KeyS') ? 1 : 0)
+    const steerTarget = (this.keys.has('KeyA') ? 1 : 0) - (this.keys.has('KeyD') ? 1 : 0)
+    this.vehicleThrottle = THREE.MathUtils.damp(this.vehicleThrottle, throttleTarget, 6, dt)
+    this.vehicleSteer = THREE.MathUtils.damp(this.vehicleSteer, steerTarget, 8, dt)
+    // A turns left (negative yaw with tankForward convention). Pivot slowly when stopped.
+    const turnScale = Math.abs(this.vehicleThrottle) > .08 ? 1 : .45
+    tank.root.rotation.y -= this.vehicleSteer * dt * .95 * mobility * turnScale
+    const forward = this.tankForward(tank.root.rotation.y, this.tmpV3C)
+    const speed = this.vehicleThrottle * dt * (this.vehicleThrottle > 0 ? 4.6 : 2.5) * mobility
+    this.moveTankWithCollision(tank.root.position, forward.x * speed, forward.z * speed)
+    const commanderRate = this.crewAlive(tank, 'commander') ? 1 : .72
+    // Player turret tracks mouse without lag; commander injury only slows gun pitch.
+    tank.turret.rotation.y = this.yaw - tank.root.rotation.y
+    const gunPitch = THREE.MathUtils.clamp(this.pitch, -.2, .38)
+    tank.pitch.rotation.x = THREE.MathUtils.damp(tank.pitch.rotation.x, gunPitch, (2.4 + tank.turretHealth / 28) * commanderRate, dt)
+    if (this.tankGunnerView) {
+      // Seat behind gun sight; look with mouse (matches turret).
+      const seat = tank.turret.localToWorld(this.tmpV3A.set(0, .42, -.55))
+      this.camera.position.copy(seat)
+      this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ')
+    } else {
+      const look = this.tmpV3B.copy(tank.root.position).setY(tank.root.position.y + 1.35)
+      this.placeChaseCamera(tank.root.position, look, 8.8, 2.7, 3.4, tank.root)
+    }
+    const fov = this.tankGunnerView ? 32 : 66
+    this.camera.fov = THREE.MathUtils.damp(this.camera.fov, fov, 10, dt)
+    this.camera.updateProjectionMatrix()
+    this.camera.updateMatrixWorld()
+    const cameraDirection = this.tmpV3C
+    this.camera.getWorldDirection(cameraDirection)
+    this.ray.set(this.camera.position, cameraDirection)
+    this.ray.far = 160
+    const rangeHit = this.withStaticCover(this.ray.intersectObjects(this.occlusionMeshes(), false)[0])
+    const range = rangeHit?.distance ?? 160
+    this.ray.far = Infinity
+    if (this.tankMgFiring) this.firePlayerTankMg()
+    const ready = performance.now() >= this.tankShotAt && tank.turretHealth > 0 && this.crewAlive(tank, 'gunner')
+    const muzzle = tank.muzzle.getWorldPosition(this.tmpV3A)
+    const barrelDirection = this.tmpV3B.set(0, 0, -1).applyQuaternion(tank.pitch.getWorldQuaternion(new THREE.Quaternion()))
+    const projected = this.chaseCamLook.copy(muzzle).addScaledVector(barrelDirection, 80).project(this.camera)
+    const pipVisible = projected.z < 1 && Math.abs(projected.x) <= 1.15 && Math.abs(projected.y) <= 1.15
+    this.events.tankSight(true, this.tankGunnerView, ready, pipVisible ? (projected.x * .5 + .5) * innerWidth : undefined, pipVisible ? (1 - (projected.y * .5 + .5)) * innerHeight : undefined)
+    const failedRoles = tank.crewMen.filter(crew => !crew.alive).map(crew => crew.role === 'driver' ? '驾驶员' : crew.role === 'gunner' ? '炮手' : crew.role === 'loader' ? '装填手' : '车长').join('、')
+    // gunnerView true = optic seat; label must match.
+    this.events.vehicle(true, tank.hp, ready, tank.name, `左键主炮 · 右键同轴 · C ${this.tankGunnerView ? '炮手瞄具' : '车长外视'} · 距离 ${Math.round(range)}m · ${failedRoles ? `${failedRoles}阵亡` : `乘员 ${tank.crew}/${tank.crewCapacity}`}`, tank.maxHp, ready ? 1 : Math.max(0, 1 - (this.tankShotAt - performance.now()) / 4300))
   }
   private updateBrace() {
     const support = this.weaponSlot === 'primary' && this.selectedLoadout.id === 'support'
@@ -1407,7 +1721,7 @@ export class Game {
     const direction = this.tmpV3A.copy(end).sub(start), distance = direction.length()
     if (!distance) return undefined
     this.ray.set(start, direction.multiplyScalar(1 / distance)); this.ray.far = distance
-    const hit = this.ray.intersectObjects(this.occlusionMeshes(), false)[0]
+    const hit = this.withStaticCover(this.ray.intersectObjects(this.occlusionMeshes(), false)[0])
     this.ray.far = Infinity
     return hit && hit.distance < distance - .08 ? hit : undefined
   }
@@ -1684,7 +1998,7 @@ export class Game {
     const shotAge = time - bot.shotAt, recoil = shotAge < .18 ? Math.sin(shotAge / .18 * Math.PI) : 0; bot.weapon.position.z = recoil * .12; bot.weapon.rotation.x = recoil * .08; bot.muzzle.visible = shotAge < .055
     const enemies = this.bots.filter(target => target.alive && !target.drivingTank && !target.drivingTransport && !target.piloting && !target.chuting && target.team !== bot.team), playerTarget = bot.team === 'enemy' && !this.dead, targetBot = enemies.sort((a, b) => bot.root.position.distanceToSquared(a.root.position) - bot.root.position.distanceToSquared(b.root.position))[0], botDistance = targetBot ? bot.root.position.distanceToSquared(targetBot.root.position) : Infinity, playerDistance = playerTarget ? bot.root.position.distanceToSquared(this.camera.position) : Infinity, targetingPlayer = playerDistance < botDistance, target = targetingPlayer ? this.camera.position : targetBot?.root.position
     if (!target) return; const distance = bot.root.position.distanceTo(target); if (distance > weapon.range) return; bot.root.rotation.y = Math.atan2(target.x - bot.root.position.x, target.z - bot.root.position.z) + Math.PI; if (time < bot.nextShot) return
-    bot.nextShot = time + THREE.MathUtils.lerp(weapon.interval[0], weapon.interval[1], Math.random()) * 1.35; bot.shotAt = time; bot.mag--; const start = bot.muzzle.getWorldPosition(new THREE.Vector3()), end = target.clone().setY(targetingPlayer ? this.camera.position.y : 1.35), accuracy = THREE.MathUtils.clamp((.58 - distance * .011) * weapon.accuracy * (1 - Math.min(.6, bot.suppression * .35)), .06, .62); let hit = Math.random() < accuracy; if (!hit) { end.x += (Math.random() - .5) * 4.5; end.y += (Math.random() - .5) * 2.8 } const shotDistance = start.distanceTo(end); this.ray.set(start, end.clone().sub(start).normalize()); this.ray.far = shotDistance; const obstruction = this.ray.intersectObjects(this.occlusionMeshes(), false)[0]; this.ray.far = Infinity; if (obstruction) { end.copy(obstruction.point); hit = false } if (this.smokeBlocks(start, end)) hit = false; this.tracer(start, end, bot.team === 'ally' ? 0xffdd83 : 0xff8b68); const sound = this.soundAt(transport.root.position); this.audio.shot(weapon.kind, sound.volume, sound.pan); this.alertBots(bot.team, transport.root.position)
+    bot.nextShot = time + THREE.MathUtils.lerp(weapon.interval[0], weapon.interval[1], Math.random()) * 1.35; bot.shotAt = time; bot.mag--; const start = bot.muzzle.getWorldPosition(new THREE.Vector3()), end = target.clone().setY(targetingPlayer ? this.camera.position.y : 1.35), accuracy = THREE.MathUtils.clamp((.58 - distance * .011) * weapon.accuracy * (1 - Math.min(.6, bot.suppression * .35)), .06, .62); let hit = Math.random() < accuracy; if (!hit) { end.x += (Math.random() - .5) * 4.5; end.y += (Math.random() - .5) * 2.8 } const shotDistance = start.distanceTo(end); this.ray.set(start, end.clone().sub(start).normalize()); this.ray.far = shotDistance; const obstruction = this.withStaticCover(this.ray.intersectObjects(this.occlusionMeshes(), false)[0]); this.ray.far = Infinity; if (obstruction) { end.copy(obstruction.point); hit = false } if (this.smokeBlocks(start, end)) hit = false; this.tracer(start, end, bot.team === 'ally' ? 0xffdd83 : 0xff8b68); const sound = this.soundAt(transport.root.position); this.audio.shot(weapon.kind, sound.volume, sound.pan); this.alertBots(bot.team, transport.root.position)
     if (targetBot) targetBot.suppression = Math.min(1.6, targetBot.suppression + weapon.suppression); if (!hit) return; const damage = THREE.MathUtils.lerp(weapon.damage[0], weapon.damage[1], Math.random()) * .85; if (targetingPlayer) { this.hurtPlayer(damage * .36 * this.enemyDamage, start, `${bot.name}的${weapon.kind === 'auto' ? '自动武器' : weapon.kind === 'semi' ? '半自动步枪' : '步枪'}`); if (this.dead) bot.kills++ } else if (targetBot) { targetBot.hp -= damage; if (targetBot.hp <= 0) { bot.kills++; this.down(targetBot, undefined, false, bot) } }
   }
   private botWeapon(role: string, team?: Team) {
@@ -1728,7 +2042,7 @@ export class Game {
     if (distance < .1 || this.smokeBlocks(start, position)) return false
     direction.multiplyScalar(1 / distance)
     this.ray.set(start, direction); this.ray.far = distance
-    const obstruction = this.ray.intersectObjects(this.occlusionMeshes(), false)[0]
+    const obstruction = this.withStaticCover(this.ray.intersectObjects(this.occlusionMeshes(), false)[0])
     this.ray.far = Infinity
     return !obstruction || obstruction.distance >= distance - .45
   }
@@ -1923,7 +2237,7 @@ export class Game {
       bot.nextShot = time + THREE.MathUtils.lerp(weapon.interval[0], weapon.interval[1], Math.random()) * (bot.team === 'enemy' ? this.enemyFireRate : 1)
       bot.shotAt = time; bot.mag--
       const accuracy = THREE.MathUtils.clamp((.72 - distance * .012) * weapon.accuracy * (1 - Math.min(.65, bot.suppression * .42)) * (bot.team === 'enemy' ? this.enemyAccuracy : 1), .05, .82)
-      let hitShot = Math.random() <= accuracy; const start = bot.muzzle.getWorldPosition(new THREE.Vector3()), end = targetBot ? targetBot.root.position.clone().add(new THREE.Vector3(0, 1.35, 0)) : targetTransport ? targetTransport.root.position.clone().add(new THREE.Vector3(0, 1, 0)) : targetDepot ? targetDepot.position.clone().add(new THREE.Vector3(0, 1, 0)) : this.camera.position.clone(); if (!hitShot) { end.x += (Math.random() - .5) * 3.5; end.y += (Math.random() - .5) * 2.5 } const shotDirection = end.clone().sub(start), shotDistance = shotDirection.length(); this.ray.set(start, shotDirection.normalize()); const obstruction = this.ray.intersectObjects(this.occlusionMeshes(), false)[0]; if (obstruction && obstruction.distance < shotDistance) { end.copy(obstruction.point); hitShot = false }
+      let hitShot = Math.random() <= accuracy; const start = bot.muzzle.getWorldPosition(new THREE.Vector3()), end = targetBot ? targetBot.root.position.clone().add(new THREE.Vector3(0, 1.35, 0)) : targetTransport ? targetTransport.root.position.clone().add(new THREE.Vector3(0, 1, 0)) : targetDepot ? targetDepot.position.clone().add(new THREE.Vector3(0, 1, 0)) : this.camera.position.clone(); if (!hitShot) { end.x += (Math.random() - .5) * 3.5; end.y += (Math.random() - .5) * 2.5 } const shotDirection = end.clone().sub(start), shotDistance = shotDirection.length(); this.ray.set(start, shotDirection.normalize()); const obstruction = this.withStaticCover(this.ray.intersectObjects(this.occlusionMeshes(), false)[0]); if (obstruction && obstruction.distance < shotDistance) { end.copy(obstruction.point); hitShot = false }
       if (this.smokeBlocks(start, end)) hitShot = false; if (bot.team === 'enemy') this.nearMiss(start, end)
       this.tracer(start, end, bot.team === 'ally' ? 0xffdd83 : 0xff8b68); const sound = this.soundAt(bot.root.position); this.audio.shot(weapon.kind, sound.volume, sound.pan); this.alertBots(bot.team, bot.root.position)
       if (targetBot) targetBot.suppression = Math.min(1.6, targetBot.suppression + weapon.suppression)
@@ -1948,7 +2262,7 @@ export class Game {
       if (!bot.alive || !bot.antiTank || bot.riding || time < bot.nextRocket || time - bot.throwAt < 1.4) continue
       const target = this.tanks.filter(tank => tank.alive && tank.team !== bot.team).sort((a, b) => bot.root.position.distanceToSquared(a.root.position) - bot.root.position.distanceToSquared(b.root.position))[0]
       if (!target) continue; const distance = bot.root.position.distanceTo(target.root.position); if (distance < 12 || distance > 52) continue
-      const origin = bot.root.position.clone().add(new THREE.Vector3(0, 1.55, 0)), aim = target.root.position.clone().add(new THREE.Vector3(0, 1, 0)).sub(origin); aim.x += (Math.random() - .5) * distance * .022; aim.y += (Math.random() - .5) * distance * .012; aim.z += (Math.random() - .5) * distance * .022; const direction = aim.normalize(); this.ray.set(origin, direction); this.ray.far = distance + 4; const hit = this.ray.intersectObjects([...this.occlusionMeshes(), target.hitbox], false)[0]; this.ray.far = Infinity; const end = hit?.point ?? origin.clone().addScaledVector(direction, distance + 4); this.tracer(origin.clone().addScaledVector(direction, .65), end, bot.team === 'ally' ? 0xffdf83 : 0xff8b68); if (hit?.object === target.hitbox) { const wasAlive = target.alive; this.impactFx(hit.point); this.damageTank(target, 125, false, hit.point, 48, direction, `${bot.name} · 反坦克武器`, origin); if (wasAlive && !target.alive) { bot.kills++; this.events.combatKill(bot.name, bot.team, target.name, target.team) } } else if (hit) this.impactFx(hit.point); bot.nextRocket = time + 4.5 + Math.random() * 3; bot.shotAt = time; bot.root.rotation.y = Math.atan2(direction.x, direction.z) + Math.PI; const sound = this.soundAt(bot.root.position); this.audio.shot('bolt', sound.volume, sound.pan); this.alertBots(bot.team, bot.root.position)
+      const origin = bot.root.position.clone().add(new THREE.Vector3(0, 1.55, 0)), aim = target.root.position.clone().add(new THREE.Vector3(0, 1, 0)).sub(origin); aim.x += (Math.random() - .5) * distance * .022; aim.y += (Math.random() - .5) * distance * .012; aim.z += (Math.random() - .5) * distance * .022; const direction = aim.normalize(); this.ray.set(origin, direction); this.ray.far = distance + 4; const hit = this.withStaticCover(this.ray.intersectObjects([...this.occlusionMeshes(), target.hitbox], false)[0]); this.ray.far = Infinity; const end = hit?.point ?? origin.clone().addScaledVector(direction, distance + 4); this.tracer(origin.clone().addScaledVector(direction, .65), end, bot.team === 'ally' ? 0xffdf83 : 0xff8b68); if (hit?.object === target.hitbox) { const wasAlive = target.alive; this.impactFx(hit.point); this.damageTank(target, 125, false, hit.point, 48, direction, `${bot.name} · 反坦克武器`, origin); if (wasAlive && !target.alive) { bot.kills++; this.events.combatKill(bot.name, bot.team, target.name, target.team) } } else if (hit) this.impactFx(hit.point); bot.nextRocket = time + 4.5 + Math.random() * 3; bot.shotAt = time; bot.root.rotation.y = Math.atan2(direction.x, direction.z) + Math.PI; const sound = this.soundAt(bot.root.position); this.audio.shot('bolt', sound.volume, sound.pan); this.alertBots(bot.team, bot.root.position)
     }
   }
   private updateTanks(dt: number, time: number) {
@@ -2106,8 +2420,10 @@ export class Game {
     }
   }
   private update(dt: number, time: number) {
+    this.fxPool.updateTracers(this.scene)
     if (!this.active || this.matchOver || this.paused) { this.audio.stopEngine(); if (this.combatLogBuffer.length) this.flushCombatLog(false); return }
     this.refreshCombatTargets()
+    this.updateSun()
     if (this.playerTank) { const load = this.keys.has('KeyW') || this.keys.has('KeyS') ? 1 : this.keys.has('KeyA') || this.keys.has('KeyD') ? .65 : .18, damage = Math.max(1 - this.playerTank.engine / 100, 1 - this.playerTank.hp / this.playerTank.maxHp); this.audio.engine(load, damage) } else this.audio.stopEngine()
     if ((this.parachuting || this.playerTransportPassenger || this.playerMortar || this.playerEmplacement || this.playerMG) && this.camera.fov !== 72) this.resetCameraView()
     this.updateGrenadeCook(dt, time); this.updateConstructionRisers(time); if (!this.dead) { this.updateBandage(time); this.updateSupplyAction(time); this.updateBuildAction(time) }
