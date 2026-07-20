@@ -124,7 +124,7 @@ export class MapBuilder {
     if (theme === 'delta' || theme === 'canal' || theme === 'loess') { for (const x of [-2.35, 2.35]) { this.box([.09, .06, 130], [x, .08, 0], 0x777d77); for (let z = -60; z < 61; z += 2.8) this.instance('sleeper', sleeperGeometry, this.mat(0x3f3025, .88, 1), new THREE.Matrix4().makeTranslation(x, .025, z), undefined, false, true); this.minimapFeatures.rails.push({ x1: x, z1: -60, x2: x, z2: 60 }) } }
     for (const z of [32, 2, -33]) for (let row = 0; row < 2; row++) for (let i = 0; i < (row ? 5 : 7); i++) this.cover([1.45, .42, .55], [(i - (row ? 2 : 3)) * 1.1, .23 + row * .42, z], row ? 0x655845 : 0x75664d)
     const stoneDepth = this.mapBounds.halfDepth - 3
-    for (let i = 0; i < 28; i++) this.instance('stone', stoneGeometry, this.mat(theme === 'green' || theme === 'jungle' ? 0x37402f : 0x4b4035, .88, 1), new THREE.Matrix4().compose(new THREE.Vector3(-7 + this.rng() * 14, .1, -stoneDepth + this.rng() * stoneDepth * 2), new THREE.Quaternion(), new THREE.Vector3(.4 + this.rng(), .15 + this.rng() * .6, .4 + this.rng())), undefined, false, true)
+    for (let i = 0; i < 28; i++) { const sx = .4 + this.rng(), sy = .15 + this.rng() * .6, sz = .4 + this.rng(), px = -7 + this.rng() * 14, pz = -stoneDepth + this.rng() * stoneDepth * 2; this.instance('stone', stoneGeometry, this.mat(theme === 'green' || theme === 'jungle' ? 0x37402f : 0x4b4035, .88, 1), new THREE.Matrix4().compose(new THREE.Vector3(px, .1, pz), identityQuaternion, new THREE.Vector3(sx, sy, sz)), undefined, false, true) }
     this.flushInstances()
   }
   private urbanMap(palette: number[]) {
