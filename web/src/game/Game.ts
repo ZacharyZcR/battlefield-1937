@@ -11,7 +11,7 @@ import type { Collider, FieldStructure, Ladder, MinimapFeatures, Platform, Urban
 import { CombatTargets } from './combatTargets'
 import { FxPool } from './fxPool'
 import { buildStaticCover } from './map/staticCover'
-import { buildPlane, buildSoldier, buildTank, buildTransport } from './models'
+import { buildEmplacement, buildMachineGun, buildMortar, buildPlane, buildSoldier, buildTank, buildTransport, buildViewWeapon } from './models'
 
 type Team = 'ally' | 'enemy'
 type TankCrewRole = 'driver' | 'gunner' | 'commander' | 'loader'
@@ -164,7 +164,7 @@ export class Game {
   private weapon = new THREE.Group()
   private bolt = new THREE.Group()
   private weaponMagazine?: THREE.Object3D
-  private playerMuzzle = new THREE.Mesh(new THREE.SphereGeometry(.11, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffc45e }))
+  private playerMuzzle: THREE.Mesh = new THREE.Mesh(new THREE.SphereGeometry(.11, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffc45e }))
   private yaw = Math.PI
   private pitch = -.04
   private planeStickPitch = -.04
@@ -583,23 +583,19 @@ export class Game {
   }
   private buildWeapon() {
     this.reloadToken++; this.weapon.traverse(child => { if (!(child instanceof THREE.Mesh)) return; child.geometry.dispose(); const materials = Array.isArray(child.material) ? child.material : [child.material]; materials.forEach(material => this.disposeMaterial(material)) }); this.weapon.clear(); this.bolt.clear(); this.weaponMagazine = undefined
-    const loadout = this.activeLoadout(), id = loadout.id, machinePistol = loadout.weapon.includes('快慢机'), antiTankRifle = Boolean(loadout.vehicleDamage), wood = id === 'medic' ? 0x60401f : 0x75451f, metal = 0x202524
-    const cylinder = (radius: number, length: number, position: [number, number, number], parent: THREE.Object3D = this.weapon) => { const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, length, 10), this.mat(metal, .28)); mesh.rotation.x = Math.PI / 2; mesh.position.set(...position); parent.add(mesh); return mesh }
-    if (id === 'sidearm' || machinePistol) {
-      this.box([.2, .22, .65], [0, .02, -.2], metal, this.weapon); this.box([.18, .34, .2], [0, -.22, .02], wood, this.weapon); cylinder(.04, .45, [0, .03, -.72]); this.box([.22, .06, .48], [0, .16, -.2], 0x343a37, this.weapon); this.weaponMagazine = this.box([.12, machinePistol ? .52 : .32, .14], [0, machinePistol ? -.34 : -.25, -.18], 0x292f2c, this.weapon)
-    } else if (id === 'assault') {
-      this.box([.2, .19, .58], [0, -.02, .12], wood, this.weapon); this.box([.18, .18, .58], [0, .02, -.42], metal, this.weapon); cylinder(.025, .72, [0, .03, -1.06]); const magazine = this.box([.42, .1, .16], [-.25, -.04, -.35], 0x353b38, this.weapon); magazine.rotation.z = -.12; this.weaponMagazine = magazine
-    } else if (id === 'support') {
-      this.box([.22, .2, .72], [0, -.05, .16], wood, this.weapon); this.box([.2, .2, .7], [0, .02, -.5], metal, this.weapon); cylinder(.035, 1.05, [0, .03, -1.35]); this.weaponMagazine = this.box([.2, .32, .34], [0, .26, -.48], 0x303633, this.weapon); for (const x of [-.12, .12]) { const leg = cylinder(.014, .62, [x, -.2, -1.67]); leg.rotation.z = x < 0 ? -.25 : .25 }
-    } else if (id === 'anti-tank' && antiTankRifle) {
-      this.box([.22, .2, .95], [0, -.04, .18], wood, this.weapon); this.box([.16, .16, .9], [0, .02, -.72], metal, this.weapon); cylinder(.055, 1.65, [0, .04, -1.95]); this.weaponMagazine = this.box([.24, .36, .2], [0, -.2, -.65], 0x303532, this.weapon); this.box([.12, .1, .3], [0, .18, -1.15], 0x252b29, this.weapon); for (const x of [-.16, .16]) { const leg = cylinder(.016, .72, [x, -.22, -2.12]); leg.rotation.z = x < 0 ? -.28 : .28 }
-    } else {
-      this.box([.2, .19, .88], [0, -.04, .17], wood, this.weapon); this.box([.15, .15, .75], [0, 0, -.59], wood, this.weapon); this.box([.115, .13, .95], [0, .04, -.78], metal, this.weapon); cylinder(.027, 1, [0, .04, -1.72])
-      if (id === 'scout') { cylinder(.055, .52, [0, .18, -.72]); this.box([.16, .08, .12], [0, .12, -.48], metal, this.weapon); this.box([.16, .08, .12], [0, .12, -.96], metal, this.weapon) }
-    }
-    if (loadout.kind === 'bolt') { this.bolt.position.set(.1, .1, -.4); this.weapon.add(this.bolt); const handle = cylinder(.035, .3, [0, 0, 0], this.bolt); handle.rotation.x = Math.PI / 2 }
-    const muzzleZ = id === 'sidearm' || machinePistol ? -.98 : id === 'assault' ? -1.43 : id === 'support' ? -1.9 : antiTankRifle ? -2.55 : -2.22; if (id !== 'sidearm' && !machinePistol && id !== 'assault' && id !== 'support' && !antiTankRifle) { const blade = this.box([.045, .11, .48], [0, .12, muzzleZ - .28], 0xb9c0ba, this.weapon); blade.rotation.x = -.08; const tip = new THREE.Mesh(new THREE.ConeGeometry(.065, .24, 4), this.mat(0xc8cec8, .22)); tip.rotation.x = -Math.PI / 2; tip.position.set(0, .12, muzzleZ - .63); this.weapon.add(tip) } this.playerMuzzle = new THREE.Mesh(new THREE.SphereGeometry(.11, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffc45e })); this.playerMuzzle.position.set(0, .04, muzzleZ); this.playerMuzzle.scale.set(1, 1, 2.8); this.playerMuzzle.visible = false; this.weapon.add(this.playerMuzzle)
-    for (const x of [-.13, .14]) { const hand = new THREE.Mesh(new THREE.CapsuleGeometry(.07, .24, 4, 8), this.mat(0xb18362)); hand.rotation.x = Math.PI / 2; hand.position.set(x, -.2, x < 0 ? -.72 : -.2); this.weapon.add(hand) }
+    const loadout = this.activeLoadout()
+    const built = buildViewWeapon({
+      id: loadout.id,
+      weaponName: loadout.weapon,
+      kind: loadout.kind,
+      vehicleDamage: loadout.vehicleDamage,
+      parent: this.weapon,
+      bolt: this.bolt,
+      box: (s, p, c, parent) => this.box(s, p, c, parent),
+      mat: (c, r) => this.mat(c, r),
+    })
+    this.weaponMagazine = built.magazine
+    this.playerMuzzle = built.muzzle
     this.weapon.position.set(.32, -.27, -.65); this.weapon.rotation.set(0, 0, 0)
   }
   private switchWeapon(slot: 'primary' | 'sidearm') {
@@ -722,11 +718,11 @@ export class Game {
     const transport: Transport = { root, hitbox, wheels, team, name: config.name, maxHp: config.maxHp, hp: config.maxHp, alive: true, playerDriven: false, mission: 'pickup', waitUntil: 0, nextDrop: 0, stalledFor: 0, reverseUntil: 0, reverseTurn: Math.random() < .5 ? -1 : 1, nextSmoke: 0, lastDamageAt: -99, respawnAt: 0 }; hitbox.userData.transport = transport; this.transports.push(transport); this.reinforceTransport(transport, performance.now() / 1000)
   }
   private emplacement(team: Team, kind: 'at' | 'aa', x: number, z: number) {
-    const placement = this.openPlacement(x, z, 1.45); x = placement.x; z = placement.z; const root = new THREE.Group(); root.position.copy(placement); root.rotation.y = team === 'ally' ? Math.PI : 0; this.scene.add(root); const color = team === 'ally' ? 0x4c5d50 : 0x696344
-    const hitbox = this.box([1.8, .72, 1.3], [0, .58, 0], color, root), yaw = new THREE.Group(); yaw.position.y = .85; root.add(yaw); this.box([kind === 'aa' ? 1.2 : 1.9, .78, .12], [0, .15, -.15], color, yaw)
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(kind === 'aa' ? .045 : .07, kind === 'aa' ? .055 : .09, kind === 'aa' ? 2 : 2.8, 8), this.mat(0x292e2a, .35)); barrel.rotation.x = Math.PI / 2; barrel.position.set(0, kind === 'aa' ? .42 : .22, kind === 'aa' ? -.9 : -1.35); yaw.add(barrel)
-    for (const side of [-1, 1]) { const wheel = new THREE.Mesh(new THREE.CylinderGeometry(.43, .43, .18, 12), this.mat(0x252925)); wheel.rotation.z = Math.PI / 2; wheel.position.set(side * .95, .42, .15); root.add(wheel) }
-    const muzzle = new THREE.Object3D(); muzzle.position.set(0, kind === 'aa' ? .42 : .22, kind === 'aa' ? -1.95 : -2.78); yaw.add(muzzle); const emplacement: Emplacement = { root, yaw, muzzle, hitbox, team, kind, hp: kind === 'aa' ? 180 : 240, alive: true, occupied: false, operatorUntil: 0, nextShot: 2 + Math.random() * 2, respawnAt: 0 }; hitbox.userData.emplacement = emplacement; this.emplacements.push(emplacement)
+    const placement = this.openPlacement(x, z, 1.45)
+    const mesh = buildEmplacement({ team, kind, box: (s, p, c, parent) => this.box(s, p, c, parent), mat: (c, r) => this.mat(c, r) })
+    mesh.root.position.copy(placement); mesh.root.rotation.y = team === 'ally' ? Math.PI : 0; this.scene.add(mesh.root)
+    const { root, yaw, muzzle, hitbox } = mesh
+    const emplacement: Emplacement = { root, yaw, muzzle, hitbox, team, kind, hp: kind === 'aa' ? 180 : 240, alive: true, occupied: false, operatorUntil: 0, nextShot: 2 + Math.random() * 2, respawnAt: 0 }; hitbox.userData.emplacement = emplacement; this.emplacements.push(emplacement)
   }
   private plane(team: Team) {
     const captured = team === 'ally' && this.campaign.id === 'baituan', index = this.planes.filter(plane => plane.team === team).length
@@ -889,7 +885,9 @@ export class Game {
     if (this.mortar) { if (this.camera.position.distanceToSquared(this.mortar.position) > 3.5 ** 2 || this.mortar.occupied) { this.status = '靠近自己的迫击炮才能回收'; this.statusUntil = performance.now() / 1000 + 1.5; return } this.mortarAmmo = this.mortar.ammo; this.disposeGroup(this.mortar.root); this.mortar = undefined; this.status = '迫击炮已回收'; this.statusUntil = performance.now() / 1000 + 1.5; return }
     const direction = new THREE.Vector3(); this.camera.getWorldDirection(direction); direction.y = 0; direction.normalize(); const position = this.camera.position.clone().addScaledVector(direction, 1.8); position.y = this.terrainHeight(position.x, position.z)
     if (this.colliders.some(box => position.x + .7 > box.minX && position.x - .7 < box.maxX && position.z + .7 > box.minZ && position.z - .7 < box.maxZ)) { this.status = '这里无法架设迫击炮'; this.statusUntil = performance.now() / 1000 + 1.5; return }
-    const root = new THREE.Group(); root.position.copy(position); root.rotation.y = this.yaw; this.scene.add(root); const base = new THREE.Mesh(new THREE.CylinderGeometry(.3, .34, .09, 10), this.mat(0x343b36, .4)); base.position.set(0, .05, -.1); root.add(base); const tube = new THREE.Mesh(new THREE.CylinderGeometry(.056, .064, .82, 9), this.mat(0x242b28, .3)); tube.position.set(0, .43, .06); tube.rotation.x = .62; root.add(tube); for (const x of [-.16, .16]) { const leg = new THREE.Mesh(new THREE.CylinderGeometry(.018, .018, .48, 6), this.mat(0x313936, .35)); leg.position.set(x, .25, .29); leg.rotation.z = x < 0 ? .4 : -.4; leg.rotation.x = -.22; root.add(leg) } root.traverse(child => { if (child instanceof THREE.Mesh) child.castShadow = true }); this.mortar = { root, tube, position, ammo: this.mortarAmmo, occupied: false }; this.status = '迫击炮已架设，按 E 操作'; this.statusUntil = performance.now() / 1000 + 1.8; this.audio.click(800, .1)
+    const mesh = buildMortar({ box: (s, p, c, parent) => this.box(s, p, c, parent), mat: (c, r) => this.mat(c, r) })
+    mesh.root.position.copy(position); mesh.root.rotation.y = this.yaw; this.scene.add(mesh.root)
+    this.mortar = { root: mesh.root, tube: mesh.tube, position, ammo: this.mortarAmmo, occupied: false }; this.status = '迫击炮已架设，按 E 操作'; this.statusUntil = performance.now() / 1000 + 1.8; this.audio.click(800, .1)
   }
   private enterMortar(mortar: Mortar) { this.playerMortar = mortar; mortar.occupied = true; this.weapon.visible = false; this.aiming = false; this.events.aim(false); this.camera.position.copy(mortar.position).add(new THREE.Vector3(0, 1.35, 0)); this.status = '迫击炮瞄准中'; this.statusUntil = performance.now() / 1000 + 1.3 }
   private leaveMortar() { const mortar = this.playerMortar; if (!mortar) return; mortar.occupied = false; this.playerMortar = undefined; this.mortarMarker.visible = false; this.weapon.visible = true; this.camera.position.copy(mortar.position).add(new THREE.Vector3(1.2, 1.72, 0)); this.events.loadout(this.activeLoadout()); this.events.ammo(this.mag, this.reserve, false) }
@@ -901,7 +899,9 @@ export class Game {
   }
   private updatePlayerMortar(dt: number) { const mortar = this.playerMortar; if (!mortar) return; this.camera.position.copy(mortar.position).add(new THREE.Vector3(0, 1.35, 0)); this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ'); const target = this.mortarTarget(); this.mortarMarker.position.copy(target); this.mortarMarker.visible = true; this.mortarMarker.rotation.z += dt * 1.2; this.events.ammo(mortar.ammo, 0, performance.now() < this.mortarShotAt); this.events.loadout({ ...this.selectedLoadout, weapon: '轻型迫击炮', mode: `曲射 · ${Math.round(mortar.position.distanceTo(target))}m` }) }
   private createMachineGun(position: THREE.Vector3, face: number, deployable = true) {
-    const root = new THREE.Group(); root.position.copy(position).setY(1); root.rotation.y = face; this.scene.add(root); const yaw = new THREE.Group(), pitch = new THREE.Group(); yaw.add(pitch); root.add(yaw); const body = this.box([.18, .22, .74], [0, 0, -.05], 0x272d2a, pitch), shield = this.box([.9, .55, .06], [0, .04, -.36], 0x4a504b, pitch), barrel = new THREE.Mesh(new THREE.CylinderGeometry(.045, .06, 1.3, 9), this.mat(0x202623, .25)); barrel.rotation.x = Math.PI / 2; barrel.position.z = -.82; pitch.add(barrel); const jacket = new THREE.Mesh(new THREE.CylinderGeometry(.08, .08, .62, 10), this.mat(0x343b37, .3)); jacket.rotation.x = Math.PI / 2; jacket.position.z = -.62; pitch.add(jacket); const tripod = new THREE.Mesh(new THREE.CylinderGeometry(.035, .035, 1.05, 7), this.mat(0x292f2c)); tripod.position.y = -.52; root.add(tripod); const muzzle = new THREE.Object3D(); muzzle.position.set(0, 0, -1.48); pitch.add(muzzle); root.traverse(child => { if (child instanceof THREE.Mesh) child.castShadow = true }); void body; void shield; return { root, yaw, pitch, muzzle, position: position.clone(), ammo: 250, heat: 0, occupied: false, deployable, operatorUntil: 0, nextShot: 0 }
+    const mesh = buildMachineGun({ box: (s, p, c, parent) => this.box(s, p, c, parent), mat: (c, r) => this.mat(c, r) })
+    mesh.root.position.copy(position).setY(1); mesh.root.rotation.y = face; this.scene.add(mesh.root)
+    return { root: mesh.root, yaw: mesh.yaw, pitch: mesh.pitch, muzzle: mesh.muzzle, position: position.clone(), ammo: 250, heat: 0, occupied: false, deployable, operatorUntil: 0, nextShot: 0 }
   }
   private enterMachineGun(machineGun: MachineGun) { if (machineGun.operator) { machineGun.operator.machineGun = undefined; machineGun.operator = undefined } this.playerMG = machineGun; machineGun.occupied = true; this.weapon.visible = false; this.aiming = false; this.events.aim(false); this.camera.position.copy(machineGun.position).add(new THREE.Vector3(0, 1.45, 0)); this.status = '重机枪已就位'; this.statusUntil = performance.now() / 1000 + 1.2 }
   private leaveMachineGun() { const machineGun = this.playerMG; if (!machineGun) return; machineGun.occupied = false; this.playerMG = undefined; this.weapon.visible = true; this.camera.position.copy(machineGun.position).add(new THREE.Vector3(1.1, 1.72, 0)); this.events.loadout(this.activeLoadout()); this.events.ammo(this.mag, this.reserve, false) }
@@ -1995,11 +1995,12 @@ export class Game {
     bot.weapon.position.set(0, 0, 0); bot.weapon.rotation.set(0, 0, 0); bot.muzzle.visible = false
   }
   private deployNpcMortar(bot: Bot, target: THREE.Vector3, time: number) {
-    const root = new THREE.Group(), direction = target.clone().sub(bot.root.position).setY(0).normalize(); root.position.copy(bot.root.position).addScaledVector(direction, .8); root.rotation.y = Math.atan2(direction.x, direction.z) + Math.PI; this.scene.add(root)
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(.3, .34, .08, 9), this.mat(0x343b36, .4)); base.position.y = .05; root.add(base)
-    const tube = new THREE.Mesh(new THREE.CylinderGeometry(.052, .064, .78, 9), this.mat(0x242b28, .3)); tube.position.set(0, .43, -.02); tube.rotation.x = .62; root.add(tube)
-    for (const x of [-.16, .16]) { const leg = new THREE.Mesh(new THREE.CylinderGeometry(.018, .018, .46, 6), this.mat(0x313936, .35)); leg.position.set(x, .24, .25); leg.rotation.z = x < 0 ? .4 : -.4; leg.rotation.x = -.22; root.add(leg) }
-    root.traverse(child => { if (child instanceof THREE.Mesh) child.castShadow = true }); bot.mortarRig = { root, tube }; bot.mortarRigUntil = time + 14 + Math.random() * 10
+    const direction = target.clone().sub(bot.root.position).setY(0).normalize()
+    const mesh = buildMortar({ box: (s, p, c, parent) => this.box(s, p, c, parent), mat: (c, r) => this.mat(c, r) })
+    mesh.root.position.copy(bot.root.position).addScaledVector(direction, .8)
+    mesh.root.rotation.y = Math.atan2(direction.x, direction.z) + Math.PI
+    this.scene.add(mesh.root)
+    bot.mortarRig = { root: mesh.root, tube: mesh.tube }; bot.mortarRigUntil = time + 14 + Math.random() * 10
   }
   private fireNpcMortar(bot: Bot, time: number) {
     if (bot.role !== 'mortar' || bot.riding || bot.suppression > 1.05 || time < bot.nextMortar) return false

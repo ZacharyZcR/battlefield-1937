@@ -452,3 +452,354 @@ export function buildPlane(opts: {
   root.traverse(child => { if (child instanceof THREE.Mesh) child.castShadow = true })
   return { root, hitbox, prop }
 }
+
+export type EmplacementMesh = {
+  root: THREE.Group
+  yaw: THREE.Group
+  muzzle: THREE.Object3D
+  hitbox: THREE.Mesh
+}
+
+export type MachineGunMesh = {
+  root: THREE.Group
+  yaw: THREE.Group
+  pitch: THREE.Group
+  muzzle: THREE.Object3D
+}
+
+export type MortarMesh = {
+  root: THREE.Group
+  tube: THREE.Mesh
+}
+
+export type ViewWeaponMesh = {
+  magazine?: THREE.Object3D
+  muzzle: THREE.Mesh
+  bolt?: THREE.Group
+}
+
+/** Field AT gun or AA mount with shield, cradle, and trails. */
+export function buildEmplacement(opts: {
+  team: Team
+  kind: 'at' | 'aa'
+  box: BoxFn
+  mat: MatFn
+}): EmplacementMesh {
+  const { team, kind, box, mat } = opts
+  const root = new THREE.Group()
+  const color = team === 'ally' ? 0x4c5d50 : 0x696344
+  const dark = 0x252925
+  const steel = 0x292e2a
+  const aa = kind === 'aa'
+
+  const hitbox = box([1.8, .72, 1.3], [0, .58, 0], color, root)
+  // Carriage trails
+  for (const x of [-.55, .55]) {
+    const trail = box([.12, .14, 2.2], [x, .28, .55], dark, root)
+    trail.rotation.x = .18
+  }
+  // Axle + wheels
+  box([2.1, .12, .12], [0, .42, .15], dark, root)
+  for (const side of [-1, 1]) {
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(.48, .48, .2, 14), mat(dark, .65))
+    wheel.rotation.z = Math.PI / 2; wheel.position.set(side * .95, .48, .15); root.add(wheel)
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(.12, .12, .22, 8), mat(0x3a4038, .5))
+    hub.rotation.z = Math.PI / 2; hub.position.set(side * .95, .48, .15); root.add(hub)
+  }
+  // Spade
+  box([.9, .08, .35], [0, .12, 1.55], dark, root)
+
+  const yaw = new THREE.Group(); yaw.position.y = .85; root.add(yaw)
+  // Gun shield
+  const shieldW = aa ? 1.15 : 1.85, shieldH = aa ? .7 : .85
+  box([shieldW, shieldH, .08], [0, .2, -.12], color, yaw)
+  // Shield view slits
+  box([.35, .12, .04], [0, .35, -.16], dark, yaw)
+  if (!aa) {
+    box([.2, .35, .04], [-.55, .15, -.16], dark, yaw)
+    box([.2, .35, .04], [.55, .15, -.16], dark, yaw)
+  }
+  // Cradle
+  box([aa ? .55 : .7, .22, .9], [0, aa ? .28 : .08, -.35], steel, yaw)
+  // Recoil slide
+  box([.18, .14, aa ? 1.1 : 1.4], [0, aa ? .42 : .18, aa ? -.7 : -1], steel, yaw)
+
+  const barrelLen = aa ? 2.1 : 2.9
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(aa ? .04 : .065, aa ? .05 : .085, barrelLen, 10), mat(steel, .32))
+  barrel.rotation.x = Math.PI / 2
+  barrel.position.set(0, aa ? .42 : .22, aa ? -.95 : -1.4)
+  yaw.add(barrel)
+  // Muzzle ring
+  const ring = cyl(mat, aa ? .06 : .1, aa ? .055 : .09, .12, steel, 8, .3)
+  ring.rotation.x = Math.PI / 2
+  ring.position.set(0, aa ? .42 : .22, aa ? -2 : -2.85)
+  yaw.add(ring)
+  if (aa) {
+    // Dual-look AA: secondary barrel
+    const barrel2 = barrel.clone(); barrel2.position.x = .12; yaw.add(barrel2)
+    const barrel3 = barrel.clone(); barrel3.position.x = -.12; yaw.add(barrel3)
+    // Elevation arc
+    box([.08, .55, .35], [-.45, .45, -.2], dark, yaw)
+  } else {
+    // Breech block
+    box([.32, .28, .4], [0, .18, .15], steel, yaw)
+  }
+
+  const muzzle = new THREE.Object3D()
+  muzzle.position.set(0, aa ? .42 : .22, aa ? -2.05 : -2.9)
+  yaw.add(muzzle)
+
+  root.traverse(child => { if (child instanceof THREE.Mesh) child.castShadow = true })
+  return { root, yaw, muzzle, hitbox }
+}
+
+/** Type 24 / Maxim-style HMG on tripod with armored shield. */
+export function buildMachineGun(opts: { box: BoxFn; mat: MatFn }): MachineGunMesh {
+  const { box, mat } = opts
+  const root = new THREE.Group()
+  const dark = 0x272d2a
+  const steel = 0x202623
+  const jacket = 0x343b37
+
+  const yaw = new THREE.Group(), pitch = new THREE.Group()
+  yaw.add(pitch); root.add(yaw)
+
+  // Receiver
+  box([.2, .24, .82], [0, 0, -.08], dark, pitch)
+  box([.16, .14, .35], [0, .08, .28], dark, pitch) // butt / spade grips
+  // Water jacket
+  const water = new THREE.Mesh(new THREE.CylinderGeometry(.085, .085, .7, 12), mat(jacket, .28))
+  water.rotation.x = Math.PI / 2; water.position.z = -.55; pitch.add(water)
+  // Barrel
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(.04, .055, 1.15, 10), mat(steel, .25))
+  barrel.rotation.x = Math.PI / 2; barrel.position.z = -1.15; pitch.add(barrel)
+  // Flash hider
+  const flash = cyl(mat, .06, .045, .14, steel, 8, .3)
+  flash.rotation.x = Math.PI / 2; flash.position.z = -1.72; pitch.add(flash)
+  // Ammo tray / belt box
+  box([.32, .16, .28], [-.28, -.08, -.1], 0x3a423a, pitch)
+  box([.08, .04, .2], [-.12, 0, -.15], 0x4a5248, pitch) // belt feed
+  // Armored shield
+  box([1.05, .62, .06], [0, .08, -.42], 0x4a504b, pitch)
+  box([.28, .14, .04], [0, .22, -.46], dark, pitch) // vision slot
+  // Rear sight
+  box([.08, .12, .04], [0, .18, .05], steel, pitch)
+
+  // Tripod
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(.06, .08, .12, 8), mat(0x292f2c, .45))
+  hub.position.y = -.35; root.add(hub)
+  for (const angle of [0, (Math.PI * 2) / 3, (Math.PI * 4) / 3]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(.025, .03, 1.15, 7), mat(0x292f2c, .45))
+    leg.position.set(Math.sin(angle) * .35, -.75, Math.cos(angle) * .35)
+    leg.rotation.x = .55; leg.rotation.y = angle; root.add(leg)
+    box([.12, .04, .18], [Math.sin(angle) * .55, -1.15, Math.cos(angle) * .55], 0x1a1e1a, root)
+  }
+  // Elevation post
+  box([.06, .45, .06], [0, -.15, .05], 0x292f2c, root)
+
+  const muzzle = new THREE.Object3D(); muzzle.position.set(0, 0, -1.82); pitch.add(muzzle)
+  root.traverse(child => { if (child instanceof THREE.Mesh) child.castShadow = true })
+  return { root, yaw, pitch, muzzle }
+}
+
+/** Lightweight infantry mortar with baseplate, bipod, tube. */
+export function buildMortar(opts: { box: BoxFn; mat: MatFn }): MortarMesh {
+  const { box, mat } = opts
+  const root = new THREE.Group()
+  const dark = 0x343b36
+  const steel = 0x242b28
+
+  // Baseplate
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(.32, .38, .07, 10), mat(dark, .4))
+  base.position.set(0, .04, -.08); root.add(base)
+  box([.5, .04, .5], [0, .02, -.08], 0x2a322c, root)
+
+  // Tube
+  const tube = new THREE.Mesh(new THREE.CylinderGeometry(.055, .068, .88, 10), mat(steel, .28))
+  tube.position.set(0, .48, .02); tube.rotation.x = .62; root.add(tube)
+  // Muzzle ring
+  const rim = cyl(mat, .07, .06, .06, steel, 10, .3)
+  rim.position.set(0, .88, .28); rim.rotation.x = .62; root.add(rim)
+  // Breech / base cap
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(.07, 8, 6), mat(steel, .3))
+  cap.position.set(0, .12, -.18); root.add(cap)
+
+  // Bipod legs
+  for (const x of [-.18, .18]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(.018, .02, .52, 6), mat(0x313936, .35))
+    leg.position.set(x, .28, .32); leg.rotation.z = x < 0 ? .42 : -.42; leg.rotation.x = -.28; root.add(leg)
+    box([.1, .03, .12], [x * 1.4, .02, .48], dark, root)
+  }
+  // Crossbar
+  box([.4, .03, .03], [0, .42, .22], 0x313936, root)
+  // Sight post
+  box([.03, .14, .03], [.1, .55, .05], steel, root)
+
+  root.traverse(child => { if (child instanceof THREE.Mesh) child.castShadow = true })
+  return { root, tube }
+}
+
+/** First-person weapon body + hands; bolt group optional for cycle anim. */
+export function buildViewWeapon(opts: {
+  id: string
+  weaponName: string
+  kind: 'bolt' | 'semi' | 'auto'
+  vehicleDamage?: number
+  parent: THREE.Group
+  bolt: THREE.Group
+  box: BoxFn
+  mat: MatFn
+}): ViewWeaponMesh {
+  const { id, weaponName, kind, vehicleDamage, parent, bolt, box, mat } = opts
+  const machinePistol = weaponName.includes('快慢机')
+  const antiTankRifle = Boolean(vehicleDamage)
+  const wood = id === 'medic' ? 0x60401f : 0x75451f
+  const metal = 0x202524
+  const steel = 0x2a302c
+  const skin = 0xb18362
+  const sleeve = 0x4f6b61
+
+  const cylinder = (radius: number, length: number, position: [number, number, number], p: THREE.Object3D = parent, color = metal, roughness = .28) => {
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, length, 10), mat(color, roughness))
+    mesh.rotation.x = Math.PI / 2; mesh.position.set(...position); p.add(mesh); return mesh
+  }
+
+  let magazine: THREE.Object3D | undefined
+  let muzzleZ = -2.22
+
+  if (id === 'sidearm' || machinePistol) {
+    // C96 / Mauser pistol shape
+    box([.16, .18, .55], [0, .04, -.18], metal, parent)
+    box([.14, .1, .22], [0, .08, -.48], metal, parent)
+    box([.15, .36, .16], [0, -.18, .02], wood, parent) // grip
+    box([.12, .08, .12], [0, -.02, .08], wood, parent)
+    cylinder(.028, .42, [0, .06, -.72])
+    box([.18, .05, .4], [0, .14, -.2], steel, parent) // top cover
+    if (machinePistol) {
+      magazine = box([.1, .55, .12], [0, -.38, -.15], 0x292f2c, parent)
+      box([.06, .08, .2], [0, .12, -.35], steel, parent)
+    } else {
+      magazine = box([.1, .28, .12], [0, -.28, -.12], 0x292f2c, parent)
+    }
+    // Hammer
+    box([.04, .08, .06], [0, .14, .08], steel, parent)
+    muzzleZ = -.98
+  } else if (id === 'assault') {
+    // MP18 / Bergmann-ish
+    box([.18, .16, .52], [0, -.02, .1], wood, parent)
+    box([.16, .16, .55], [0, .02, -.38], metal, parent)
+    cylinder(.022, .68, [0, .03, -1.02])
+    box([.14, .1, .18], [0, -.12, .05], wood, parent) // grip
+    const mag = box([.4, .09, .14], [-.22, -.04, -.32], 0x353b38, parent)
+    mag.rotation.z = -.14; magazine = mag
+    box([.1, .06, .12], [0, .12, -.15], steel, parent) // rear sight
+    box([.06, .04, .08], [0, .1, -.85], steel, parent)
+    muzzleZ = -1.43
+  } else if (id === 'support') {
+    // ZB-26 / Type 26 LMG
+    box([.2, .18, .68], [0, -.04, .14], wood, parent)
+    box([.18, .18, .65], [0, .02, -.48], metal, parent)
+    cylinder(.032, 1, [0, .03, -1.28])
+    // Cooling fins hint
+    for (const z of [-.7, -.85, -1, -1.15]) box([.1, .1, .04], [0, .03, z], steel, parent)
+    magazine = box([.18, .3, .3], [0, .24, -.42], 0x303633, parent) // top mag
+    box([.14, .1, .2], [0, -.14, .05], wood, parent)
+    for (const x of [-.11, .11]) {
+      const leg = cylinder(.012, .58, [x, -.18, -1.55])
+      leg.rotation.z = x < 0 ? -.22 : .22
+    }
+    box([.22, .04, .12], [0, -.35, -1.55], steel, parent) // bipod foot
+    muzzleZ = -1.9
+  } else if (id === 'anti-tank' && antiTankRifle) {
+    // Boys AT rifle
+    box([.2, .18, .9], [0, -.04, .16], wood, parent)
+    box([.15, .15, .85], [0, .02, -.68], metal, parent)
+    cylinder(.05, 1.55, [0, .04, -1.85])
+    magazine = box([.22, .32, .18], [0, -.18, -.6], 0x303532, parent)
+    box([.12, .1, .28], [0, .16, -1.1], 0x252b29, parent) // muzzle brake body
+    cylinder(.07, .2, [0, .04, -2.55], parent, steel, .3)
+    for (const x of [-.14, .14]) {
+      const leg = cylinder(.014, .68, [x, -.2, -2])
+      leg.rotation.z = x < 0 ? -.26 : .26
+    }
+    box([.16, .12, .2], [0, -.12, .2], wood, parent) // pistol grip
+    muzzleZ = -2.55
+  } else if (weaponName.includes('歪把子')) {
+    // Type 11 / crooked-stock LMG feel for CPC support override when used as primary mesh path - fallthrough rare
+    box([.2, .18, .7], [0, -.04, .12], wood, parent)
+    box([.18, .18, .6], [0, .02, -.5], metal, parent)
+    cylinder(.03, .95, [0, .03, -1.25])
+    magazine = box([.16, .22, .22], [0, .2, -.35], 0x303633, parent)
+    muzzleZ = -1.85
+  } else {
+    // Zhongzheng / Hanyang bolt rifle
+    box([.18, .17, .85], [0, -.04, .15], wood, parent)
+    box([.14, .13, .7], [0, 0, -.55], wood, parent)
+    box([.11, .12, .9], [0, .04, -.75], metal, parent)
+    cylinder(.025, .95, [0, .04, -1.65])
+    // Handguard bands
+    box([.13, .13, .05], [0, .02, -.35], steel, parent)
+    box([.13, .13, .05], [0, .02, -.95], steel, parent)
+    // Bolt raceway
+    box([.08, .06, .35], [.06, .1, -.35], steel, parent)
+    // Trigger guard
+    box([.06, .08, .14], [0, -.12, .05], steel, parent)
+    box([.05, .1, .04], [0, -.08, .08], steel, parent)
+    // Butt plate
+    box([.16, .2, .04], [0, -.02, .55], 0x3a3228, parent)
+    if (id === 'scout') {
+      cylinder(.05, .48, [0, .18, -.7], parent, 0x252a28, .3)
+      box([.14, .07, .1], [0, .12, -.48], metal, parent)
+      box([.14, .07, .1], [0, .12, -.92], metal, parent)
+      // Scope glass tint
+      const glass = new THREE.Mesh(new THREE.CylinderGeometry(.04, .04, .06, 8), mat(0x1a3040, .15))
+      glass.rotation.x = Math.PI / 2; glass.position.set(0, .18, -.48); parent.add(glass)
+    }
+    // Bayonet
+    const blade = box([.04, .1, .45], [0, .12, muzzleZ - .28], 0xb9c0ba, parent)
+    blade.rotation.x = -.08
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(.055, .2, 4), mat(0xc8cec8, .22))
+    tip.rotation.x = -Math.PI / 2; tip.position.set(0, .12, muzzleZ - .58); parent.add(tip)
+    muzzleZ = -2.22
+  }
+
+  if (kind === 'bolt' && id !== 'sidearm' && !machinePistol) {
+    bolt.position.set(.1, .1, -.4)
+    bolt.rotation.set(0, 0, 0)
+    parent.add(bolt)
+    const handle = cylinder(.032, .28, [0, 0, 0], bolt, steel, .3)
+    handle.rotation.x = Math.PI / 2
+    // Bolt knob
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(.04, 8, 6), mat(steel, .3))
+    knob.position.set(0, .14, 0); bolt.add(knob)
+  }
+
+  const muzzle = new THREE.Mesh(new THREE.SphereGeometry(.11, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffc45e }))
+  muzzle.position.set(0, .04, muzzleZ); muzzle.scale.set(1, 1, 2.8); muzzle.visible = false; parent.add(muzzle)
+
+  // Hands — forearm sleeve + palm + fingers
+  const addHand = (side: -1 | 1, z: number, y: number, gripPitch: number) => {
+    const hand = new THREE.Group(); hand.position.set(side * .16, y, z); parent.add(hand)
+    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(.055, .28, 4, 8), mat(sleeve, .85))
+    arm.rotation.x = Math.PI / 2 + gripPitch; arm.position.set(side * .02, -.02, .18); hand.add(arm)
+    const cuff = box([.12, .06, .1], [side * .02, -.02, .02], 0x3a4638, hand)
+    void cuff
+    const palm = new THREE.Mesh(new THREE.BoxGeometry(.1, .06, .14), mat(skin, .9))
+    palm.position.set(0, -.04, -.08); palm.rotation.x = gripPitch; hand.add(palm)
+    for (const fx of [-.03, 0, .03]) {
+      const finger = new THREE.Mesh(new THREE.CapsuleGeometry(.015, .06, 3, 5), mat(skin, .9))
+      finger.position.set(fx, -.05, -.18); finger.rotation.x = .5 + gripPitch; hand.add(finger)
+    }
+    const thumb = new THREE.Mesh(new THREE.CapsuleGeometry(.016, .05, 3, 5), mat(skin, .9))
+    thumb.position.set(side * -.05, -.02, -.1); thumb.rotation.z = side * .8; hand.add(thumb)
+  }
+  // Support hand forward, trigger hand rear
+  if (id === 'sidearm' || machinePistol) {
+    addHand(1, -.15, -.18, .2)
+  } else {
+    addHand(-1, -.68, -.18, .15)
+    addHand(1, -.12, -.2, .35)
+  }
+
+  return { magazine, muzzle, bolt: kind === 'bolt' ? bolt : undefined }
+}
